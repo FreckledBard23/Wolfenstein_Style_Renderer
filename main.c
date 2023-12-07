@@ -302,17 +302,14 @@ int main(int argc, char* argv[]) {
                 quit = true;
             } else if (event.type == SDL_MOUSEMOTION) {
                 // Get the x-coordinate of mouse movement
-                int mouseX = event.motion.x;
+                int mouseX = event.motion.xrel;
 
                 // Clamp the mouse to the center of the screen
                 SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
 
                 // Update player_direction based on mouseX
-                if (mouseX < screenx / 2 - 1) {
-                    player_direction += -0.004 * ((screenx / 2) - mouseX); // Move left
-                } else if(mouseX > screenx / 2 + 1){
-                    player_direction += 0.004 * (mouseX - (screenx / 2)); // Move right
-                }
+                player_direction += 0.004 * mouseX; // Move right
+
             }
             
             if (event.type == SDL_KEYDOWN) {
