@@ -292,10 +292,15 @@ int main(int argc, char* argv[]) {
     clock_t deltatime;
     bool forward_movement = false;
     bool backward_movement = false;
+    bool left_movement = false;
+    bool right_movement = false;
     while (!quit) {
         clock_t start_time = clock();
         float player_x_offset = cos(player_direction) * speed;
         float player_y_offset = sin(player_direction) * speed;
+
+        float side_player_x_offset = sin(player_direction) * speed;
+        float side_player_y_offset = cos(player_direction) * speed;
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -319,6 +324,10 @@ int main(int argc, char* argv[]) {
                     forward_movement = true;
                 } else if (event.key.keysym.sym == SDLK_s) {
                     backward_movement = true;
+                } else if (event.key.keysym.sym == SDLK_a) {
+                    left_movement = true;
+                } else if (event.key.keysym.sym == SDLK_d) {
+                    right_movement = true;
                 } else if (event.key.keysym.sym == SDLK_e) {
                     toggle_door(player_x + player_x_offset * 4, player_y + player_y_offset * 4);
                 }
@@ -327,6 +336,10 @@ int main(int argc, char* argv[]) {
                     forward_movement = false;
                 } else if (event.key.keysym.sym == SDLK_s) {
                     backward_movement = false;
+                } else if (event.key.keysym.sym == SDLK_a) {
+                    left_movement = false;
+                } else if (event.key.keysym.sym == SDLK_d) {
+                    right_movement = false;
                 }
             }
         }
@@ -346,13 +359,21 @@ int main(int argc, char* argv[]) {
             int side_collision = collision_check(player_x + cos(0.5 * PI) * 4, player_y + sin(0.5 * PI) * 4, false)
                      || collision_check(player_x + cos(1.5 * PI) * 4, player_y + sin(1.5 * PI) * 4, false);
 
-            if((forward_collision == 0 || forward_collision == 7) && (side_collision == 0 || side_collision == 7) && forward_movement){
+            if((forward_collision == 0 || forward_collision == 7) && forward_movement){
                 player_x += player_x_offset;
                 player_y += player_y_offset;
             }
             if((backward_collision == 0 || backward_collision == 7) && backward_movement){
                 player_x -= player_x_offset;
                 player_y -= player_y_offset;
+            }
+            if((side_collision == 0 || side_collision == 7) && left_movement){
+                player_x -= side_player_x_offset;
+                player_y -= side_player_y_offset;
+            }
+            if((side_collision == 0 || side_collision == 7) && right_movement){
+                player_x += side_player_x_offset;
+                player_y += side_player_y_offset;
             }
           
             //----------Render code here----------//
