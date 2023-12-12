@@ -289,7 +289,7 @@ int main(int argc, char* argv[]) {
 
     SDL_Event event;
 
-    clock_t deltatime;
+    float deltatime;
     bool forward_movement = false;
     bool backward_movement = false;
     bool left_movement = false;
@@ -299,8 +299,8 @@ int main(int argc, char* argv[]) {
         float player_x_offset = cos(player_direction) * speed;
         float player_y_offset = sin(player_direction) * speed;
 
-        float side_player_x_offset = sin(player_direction) * speed;
-        float side_player_y_offset = cos(player_direction) * speed;
+        float side_player_x_offset = sin(-player_direction) * speed;
+        float side_player_y_offset = cos(-player_direction) * speed;
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -354,10 +354,10 @@ int main(int argc, char* argv[]) {
         SDL_RenderCopy(renderer, texture, NULL, NULL);
 
             //movement
-            int forward_collision = collision_check(player_x + player_x_offset * 4, player_y + player_y_offset * 4, false);
-            int backward_collision = collision_check(player_x - player_x_offset * 4, player_y - player_y_offset * 4, false);
-            int side_collision = collision_check(player_x + cos(0.5 * PI) * 4, player_y + sin(0.5 * PI) * 4, false)
-                     || collision_check(player_x + cos(1.5 * PI) * 4, player_y + sin(1.5 * PI) * 4, false);
+            int forward_collision =  collision_check(player_x + player_x_offset * 4,      player_y + player_y_offset * 4,      true);
+            int backward_collision = collision_check(player_x - player_x_offset * 4,      player_y - player_y_offset * 4,      true);
+            int left_collision =     collision_check(player_x - side_player_x_offset * 4, player_y - side_player_y_offset * 4, true);
+            int right_collision =    collision_check(player_x + side_player_x_offset * 4, player_y + side_player_y_offset * 4, true);
 
             if((forward_collision == 0 || forward_collision == 7) && forward_movement){
                 player_x += player_x_offset;
@@ -367,11 +367,11 @@ int main(int argc, char* argv[]) {
                 player_x -= player_x_offset;
                 player_y -= player_y_offset;
             }
-            if((side_collision == 0 || side_collision == 7) && left_movement){
+            if((left_collision == 0 || left_collision == 7) && left_movement){
                 player_x -= side_player_x_offset;
                 player_y -= side_player_y_offset;
             }
-            if((side_collision == 0 || side_collision == 7) && right_movement){
+            if((right_collision == 0 || right_collision == 7) && right_movement){
                 player_x += side_player_x_offset;
                 player_y += side_player_y_offset;
             }
@@ -391,6 +391,8 @@ int main(int argc, char* argv[]) {
         SDL_RenderPresent(renderer);
 
         deltatime = (clock() - start_time) / 1000;
+
+        printf("%f\n", deltatime);
     }
 
     SDL_DestroyTexture(texture);
