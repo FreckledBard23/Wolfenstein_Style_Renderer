@@ -29,7 +29,6 @@ Uint32 pixels[screenx * screeny];
 
 #define map_x 30
 #define map_y 30
-
 #include "textures.h"
 
 int map[map_x * map_y] = {
@@ -170,19 +169,17 @@ int collision_check(int x, int y, bool advanced){
         for(int i = -1; i <= 1; i++){
             for(int j = -1; j <= 1; j++){
                 int val = map[SDL_clamp(((y + i) / map_offset) * map_y + ((x + j) / map_offset), 0, map_x * map_y)];
-                if(val != 0 && val != 7){
-                    return map[SDL_clamp(((y + i) / map_offset) * map_y + ((x + j) / map_offset), 0, map_x * map_y)];
+                if(val != 0){
+                    return val;
                 }
             }
         }
     } else {
-        int val = map[SDL_clamp((mapy) * map_y + (mapx), 0, map_x * map_y)];
-        if(val != 0 && val != 7){
+        //int val = map[SDL_clamp((mapy) * map_y + (mapx), 0, map_x * map_y)];
+        //if(val != 0 && val != 7){
             return map[SDL_clamp((mapy) * map_y + (mapx), 0, map_x * map_y)];
-        }
+        //}
     }
-
-    return 0;
 }
 
 uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
@@ -205,7 +202,7 @@ uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
 
 int wall_texture = 0;
 int column = 0;
-int new_map_ray(int x1, int y1, float dir, int range){
+void new_map_ray(int x1, int y1, float dir, int range, float *dist){
     float x = x1;
     float y = y1;
 
@@ -214,14 +211,15 @@ int new_map_ray(int x1, int y1, float dir, int range){
         int int_y = (int)y;
 
         int col = collision_check(int_x, int_y, true);
-        if(col != 0){
+        if(col != 0 && col != 7){
             wall_texture = col;
             if(int_y % map_offset == 0 || int_y % map_offset == map_offset - 1){
                 column = int_x % map_offset;
             } else {
                 column = int_y % map_offset;
             }
-            return distance(x1, y1, x, y);
+            *dist = distance(x1, y1, x, y);
+            return;
         }
 
         //incresing rate causes artifacts, but they are only noticable at a close range, so if far, increase rate
@@ -235,7 +233,7 @@ int new_map_ray(int x1, int y1, float dir, int range){
         }
 
         if(SDL_clamp(x, 0, screenx - 1) != x || SDL_clamp(y, 0, screeny - 1) != y) {
-            return 0;
+            return;
         }
     }
 }
@@ -243,7 +241,8 @@ int new_map_ray(int x1, int y1, float dir, int range){
 void render_screen(){
     for(int i = -screenx / 6; i < screenx / 6; i++){
         float dir = (0.0024 * i);
-        float dist = new_map_ray(player_x, player_y, dir + player_direction, 500);
+        float dist = 0;
+        new_map_ray(player_x, player_y, dir + player_direction, 500, &dist);
                 
         dist = dist * cos(dir);
                 
@@ -251,7 +250,7 @@ void render_screen(){
         //draw_line(player_x / 2, player_y / 2, (player_x + cos(dir + player_direction) * dist) / 2, (player_y + sin(dir + player_direction) * dist) / 2, 0xFFFFFF00);
 
         int column_num = (i * 3) + screenx / 2;
-        int wall_height = screeny / (dist / 10);
+        float wall_height = screeny / (dist / 10);
 
         float bottom_y = (screeny - wall_height) / 2;
         float top_y = screeny - (screeny - wall_height) / 2;
@@ -259,8 +258,8 @@ void render_screen(){
         for(int y = 0; y < map_offset; y++){
             float offset = ((top_y - bottom_y) / map_offset) * y;
 
-            //good luck decoding this :o
-            draw_box_filled(column_num, bottom_y + offset, textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], 3, ((top_y - bottom_y) / map_offset) + 1);
+            //good luck decoding this
+            draw_box_filled(column_num, bottom_y + offset, wall_textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], 3, ((top_y - bottom_y) / map_offset) + 1);
         }
     }
 }
@@ -305,16 +304,19 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 quit = true;
-            } else if (event.type == SDL_MOUSEMOTION) {
+            }
+            
+            if (event.type == SDL_MOUSEMOTION) {
                 // Get the x-coordinate of mouse movement
                 int mouseX = event.motion.xrel;
 
-                // Clamp the mouse to the center of the screen
-                SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
-
                 // Update player_direction based on mouseX
-                player_direction += 0.004 * mouseX; // Move right
+                player_direction += 0.01 * mouseX; // Move right
 
+                if(mouseX != 0){
+                    // Clamp the mouse to the center of the screen
+                    SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
+                }
             }
             
             if (event.type == SDL_KEYDOWN) {
@@ -331,7 +333,8 @@ int main(int argc, char* argv[]) {
                 } else if (event.key.keysym.sym == SDLK_e) {
                     toggle_door(player_x + player_x_offset * 4, player_y + player_y_offset * 4);
                 }
-            } else if (event.type == SDL_KEYUP){
+            }
+            if (event.type == SDL_KEYUP){
                 if (event.key.keysym.sym == SDLK_w) {
                     forward_movement = false;
                 } else if (event.key.keysym.sym == SDLK_s) {
@@ -380,19 +383,23 @@ int main(int argc, char* argv[]) {
             clear_screen(0xFF1f2020);
 
             //draw floor
-            draw_box_filled(0, screeny / 2, 0xFF202020, screenx, screeny / 2);
+            draw_box_filled(0, screeny / 2, 0xFFdddddd, screenx, screeny / 2);
 
             render_screen();
 
             draw_map();
             draw_player();
 
+            if(player_direction > 2 * PI){
+                player_direction -= 2 * PI;
+            } else if(player_direction < 0) {
+                player_direction += 2 * PI;
+            }
+
         // Update the screen
         SDL_RenderPresent(renderer);
 
         deltatime = (clock() - start_time) / 1000;
-
-        printf("%f\n", deltatime);
     }
 
     SDL_DestroyTexture(texture);
