@@ -75,6 +75,8 @@ Uint32 map_colors[] = {
     0xFF777777, //open door
 };
 
+Uint32 null_col = 0x00000000;
+
 void draw_line(int x1, int y1, int x2, int y2, uint32_t color) {
     int dx = x2 - x1;
     int dy = y2 - y1;
@@ -202,9 +204,9 @@ uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
 
 int wall_texture = 0;
 int column = 0;
-void new_map_ray(int x1, int y1, float dir, int range, float *dist){
-    float x = x1;
-    float y = y1;
+void new_map_ray(int x1, int y1, float dir, int range, float *dist, int screen_x_coord){
+    float x = x1 + cos(dir);
+    float y = y1 + sin(dir);
 
     for (int i = 0; i <= range; ++i) {
         int int_x = (int)x;
@@ -220,6 +222,14 @@ void new_map_ray(int x1, int y1, float dir, int range, float *dist){
             }
             *dist = distance(x1, y1, x, y);
             return;
+        } else {
+            *dist = distance(x1, y1, x, y) * cos(dir - player_direction);
+            float next_dist = distance(x1, y1, x + cos(dir) * 2, y + sin(dir) * 2) * cos(dir - player_direction);
+            int lower_y = screeny / 2 + (screeny / 2 / (*dist / 10));
+            int upper_y = screeny / 2 + (screeny / 2 / (next_dist / 10));
+
+            draw_box_filled((screen_x_coord * 3) + screenx / 2, upper_y, 
+                            floor_texture[((int_y % map_offset) * map_offset) + (int_x % map_offset)], 3, SDL_clamp(lower_y - upper_y, 0, screeny / 2) + 1);
         }
 
         //incresing rate causes artifacts, but they are only noticable at a close range, so if far, increase rate
@@ -242,7 +252,7 @@ void render_screen(){
     for(int i = -screenx / 6; i < screenx / 6; i++){
         float dir = (0.0024 * i);
         float dist = 0;
-        new_map_ray(player_x, player_y, dir + player_direction, 500, &dist);
+        new_map_ray(player_x, player_y, dir + player_direction, 500, &dist, i);
                 
         dist = dist * cos(dir);
                 
@@ -288,13 +298,11 @@ int main(int argc, char* argv[]) {
 
     SDL_Event event;
 
-    float deltatime;
     bool forward_movement = false;
     bool backward_movement = false;
     bool left_movement = false;
     bool right_movement = false;
     while (!quit) {
-        clock_t start_time = clock();
         float player_x_offset = cos(player_direction) * speed;
         float player_y_offset = sin(player_direction) * speed;
 
@@ -380,10 +388,7 @@ int main(int argc, char* argv[]) {
             }
           
             //----------Render code here----------//
-            clear_screen(0xFF1f2020);
-
-            //draw floor
-            draw_box_filled(0, screeny / 2, 0xFFdddddd, screenx, screeny / 2);
+            clear_screen(null_col);
 
             render_screen();
 
@@ -398,8 +403,6 @@ int main(int argc, char* argv[]) {
 
         // Update the screen
         SDL_RenderPresent(renderer);
-
-        deltatime = (clock() - start_time) / 1000;
     }
 
     SDL_DestroyTexture(texture);
