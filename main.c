@@ -184,12 +184,13 @@ int collision_check(int x, int y, bool advanced){
     }
 }
 
+#define fog_strength 0.02
 uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
     // Extract RGB and A components
-    uint8_t originalR = (originalColor >> 24) & 0xFF;
-    uint8_t originalG = (originalColor >> 16) & 0xFF;
-    uint8_t originalB = (originalColor >> 8) & 0xFF;
-    uint8_t originalA = originalColor & 0xFF;
+    uint8_t originalR = (originalColor >> 16) & 0xFF;
+    uint8_t originalG = (originalColor >> 8) & 0xFF;
+    uint8_t originalB = (originalColor >> 0) & 0xFF;
+    uint8_t originalA = (originalColor >> 24) & 0xFF;
 
     // Dim each RGB component
     uint8_t dimmedR = (uint8_t)(originalR * dimmingFactor);
@@ -197,7 +198,7 @@ uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
     uint8_t dimmedB = (uint8_t)(originalB * dimmingFactor);
 
     // Recreate the dimmed color
-    uint32_t dimmedColor = (dimmedR << 24) | (dimmedG << 16) | (dimmedB << 8) | originalA;
+    uint32_t dimmedColor = (originalA << 24) | (dimmedR << 16) | (dimmedG << 8) | dimmedB;
 
     return dimmedColor;
 }
@@ -225,11 +226,13 @@ void new_map_ray(int x1, int y1, float dir, int range, float *dist, int screen_x
         } else {
             *dist = distance(x1, y1, x, y) * cos(dir - player_direction);
             float next_dist = distance(x1, y1, x + cos(dir) * 2, y + sin(dir) * 2) * cos(dir - player_direction);
-            int lower_y = screeny / 2 + (screeny / 2 / (*dist / 10));
-            int upper_y = screeny / 2 + (screeny / 2 / (next_dist / 10));
+            float lower_y = screeny / 2 + (screeny / 2 / (*dist / 10));
+            float upper_y = screeny / 2 + (screeny / 2 / (next_dist / 10));
+            int wall_height = SDL_clamp(lower_y - upper_y, 0, screeny / 2) + 1;
 
             draw_box_filled((screen_x_coord * 3) + screenx / 2, upper_y, 
-                            floor_texture[((int_y % map_offset) * map_offset) + (int_x % map_offset)], 3, SDL_clamp(lower_y - upper_y, 0, screeny / 2) + 1);
+                            dimColor(floor_texture[((int_y % map_offset) * map_offset) + (int_x % map_offset)], SDL_clamp(1 / (*dist * fog_strength), 0, 1)),
+                            3, wall_height);
         }
 
         //incresing rate causes artifacts, but they are only noticable at a close range, so if far, increase rate
@@ -252,7 +255,7 @@ void render_screen(){
     for(int i = -screenx / 6; i < screenx / 6; i++){
         float dir = (0.0024 * i);
         float dist = 0;
-        new_map_ray(player_x, player_y, dir + player_direction, 500, &dist, i);
+        new_map_ray(player_x, player_y, dir + player_direction, 360, &dist, i);
                 
         dist = dist * cos(dir);
                 
@@ -269,7 +272,8 @@ void render_screen(){
             float offset = ((top_y - bottom_y) / map_offset) * y;
 
             //good luck decoding this
-            draw_box_filled(column_num, bottom_y + offset, wall_textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], 3, ((top_y - bottom_y) / map_offset) + 1);
+            draw_box_filled(column_num, bottom_y + offset, dimColor(wall_textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], SDL_clamp(1 / (dist * fog_strength), 0, 1))
+                            , 3, ((top_y - bottom_y) / map_offset) + 1);
         }
     }
 }
@@ -298,11 +302,15 @@ int main(int argc, char* argv[]) {
 
     SDL_Event event;
 
+    clock_t start_t, end_t;
+
     bool forward_movement = false;
     bool backward_movement = false;
     bool left_movement = false;
     bool right_movement = false;
     while (!quit) {
+        start_t = clock();
+
         float player_x_offset = cos(player_direction) * speed;
         float player_y_offset = sin(player_direction) * speed;
 
@@ -400,6 +408,11 @@ int main(int argc, char* argv[]) {
             } else if(player_direction < 0) {
                 player_direction += 2 * PI;
             }
+            
+            end_t = clock();
+
+            double time_elapsed = (double)(end_t - start_t) / CLOCKS_PER_SEC;
+            //printf("%ld %ld %f\n", start_t, end_t, time_elapsed);
 
         // Update the screen
         SDL_RenderPresent(renderer);
