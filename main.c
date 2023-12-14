@@ -31,6 +31,8 @@ Uint32 pixels[screenx * screeny];
 #define map_y 30
 #include "textures.h"
 
+#include "soundmanager.h"
+
 int map[map_x * map_y] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
@@ -184,7 +186,7 @@ int collision_check(int x, int y, bool advanced){
     }
 }
 
-#define fog_strength 0.02
+#define fog_strength 0.05
 uint32_t dimColor(uint32_t originalColor, float dimmingFactor) {
     // Extract RGB and A components
     uint8_t originalR = (originalColor >> 16) & 0xFF;
@@ -268,12 +270,14 @@ void render_screen(){
         float bottom_y = (screeny - wall_height) / 2;
         float top_y = screeny - (screeny - wall_height) / 2;
 
-        for(int y = 0; y < map_offset; y++){
-            float offset = ((top_y - bottom_y) / map_offset) * y;
+        if(SDL_clamp(1 / (dist * fog_strength), 0, 1) > 0.07){
+            for(int y = 0; y < map_offset; y++){
+                float offset = ((top_y - bottom_y) / map_offset) * y;
 
-            //good luck decoding this
-            draw_box_filled(column_num, bottom_y + offset, dimColor(wall_textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], SDL_clamp(1 / (dist * fog_strength), 0, 1))
-                            , 3, ((top_y - bottom_y) / map_offset) + 1);
+                //good luck decoding this
+                draw_box_filled(column_num, bottom_y + offset, dimColor(wall_textures[(y * map_offset + column) + ((wall_texture - 1) * (map_offset * map_offset))], SDL_clamp(1 / (dist * fog_strength), 0, 1))
+                                , 3, ((top_y - bottom_y) / map_offset) + 1);
+            }
         }
     }
 }
@@ -308,8 +312,20 @@ int main(int argc, char* argv[]) {
     bool backward_movement = false;
     bool left_movement = false;
     bool right_movement = false;
+
+    sound_close_id current_music;
+    current_music = playSound("test_music.wav");
+    current_music.start_time = clock();
+
     while (!quit) {
         start_t = clock();
+
+        if((start_t - current_music.start_time) / CLOCKS_PER_SEC >= current_music.seconds){
+            freeAudioResources(&current_music);
+
+            current_music = playSound("test_beat.wav");
+            current_music.start_time = start_t;
+        }
 
         float player_x_offset = cos(player_direction) * speed;
         float player_y_offset = sin(player_direction) * speed;
@@ -412,11 +428,12 @@ int main(int argc, char* argv[]) {
             end_t = clock();
 
             double time_elapsed = (double)(end_t - start_t) / CLOCKS_PER_SEC;
-            //printf("%ld %ld %f\n", start_t, end_t, time_elapsed);
 
         // Update the screen
         SDL_RenderPresent(renderer);
     }
+
+    freeAudioResources(&current_music);
 
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
