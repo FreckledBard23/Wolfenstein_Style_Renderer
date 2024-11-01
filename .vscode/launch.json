@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": true,
-      "cwd": "c:/Users/logan/Documents/vscode/Wolfenstein_Style_Renderer",
-      "program": "c:/Users/logan/Documents/vscode/Wolfenstein_Style_Renderer/build/Debug/outDebug",
+      "cwd": "c:/Users/logan/OneDrive/Documents/VScode/Wolfenstein_Style_Renderer",
+      "program": "c:/Users/logan/OneDrive/Documents/VScode/Wolfenstein_Style_Renderer/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
