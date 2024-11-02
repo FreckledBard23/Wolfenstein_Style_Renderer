@@ -79,7 +79,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 	if(source_direction > PI)
 		direction -= 2 * PI;
 
-	ray_collision ray = {1000, 0, false};
+	ray_collision ray = {100000, 0, false};
 	
 	float temp_x = source_x;
 	float temp_y = source_y;
@@ -88,7 +88,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 	float x_offset = tan(direction) * map_offset;
 	float y_offset = map_offset;
 
-	float nearest_border = map_offset - ((int)source_y % map_offset);
+	float nearest_border = map_offset - (source_y - ((int)(source_y / map_offset) * map_offset));
 	
 	bool flipped = false;
 
@@ -96,7 +96,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 	if(direction > PI / 2 || direction < -PI / 2){
 		y_offset = -map_offset;
 		x_offset *= -1;
-		nearest_border = -((int)source_y % map_offset);
+		nearest_border = -(source_y - ((int)(source_y / map_offset) * map_offset));
 		flipped = true;
 	}
 	
@@ -134,6 +134,67 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 				}
 			} else {lines_checked = range;}
 			
+			//SDL_Color c = {255, 255, 0, 255};
+			//draw_box_filled(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			temp_x += x_offset;
+			temp_y += y_offset;
+		}
+	}
+	
+	temp_x = source_x;
+	temp_y = source_y;
+
+	//horizontal line checks
+	y_offset = -tan(direction + PI / 2) * map_offset;
+	x_offset = map_offset;
+
+	nearest_border = map_offset - (source_x - ((int)(source_x / map_offset) * map_offset));
+	
+	flipped = false;
+
+	//check if looking to a negative x
+	if(direction < 0){
+		x_offset = -map_offset;
+		y_offset *= -1;
+		nearest_border = -(source_x - ((int)(source_x / map_offset) * map_offset));
+		flipped = true;
+	}
+	
+	//move to nearest horizontal line
+	temp_x += nearest_border;
+	if(!flipped){
+		temp_y += (nearest_border / map_offset) * y_offset;
+	} else {
+		temp_y -= (nearest_border / map_offset) * y_offset;
+		temp_x -= 1;
+	}
+		
+	lines_checked = 0;
+
+	//check if not looking straight up / straight down
+	if(direction != PI && direction != 0 && direction != -PI){
+		//check range number of horizontal lines
+		while(lines_checked < range){
+			lines_checked += 1;
+
+			if(!(temp_x < 0 || temp_x > WORLDX * map_offset || 
+			     temp_y < 0 || temp_y > WORLDY * map_offset)){
+				int wall = world[(int)(temp_x / map_offset) + 
+					         (int)(temp_y / map_offset) * WORLDX];
+				float v_distance = distance(source_x, source_y,
+							    temp_x  , temp_y  );
+				if(wall != 0 && ray.dist >= v_distance){
+					ray.dist = v_distance;
+					ray.hit = wall;
+					ray.vertical = true;
+
+					ray.hit_x = temp_x;
+					ray.hit_y = temp_y;
+
+					lines_checked = range;
+				}
+			} else {lines_checked = range;}
+			
 			//SDL_Color c = {255, 255, 255, 255};
 			//draw_box_filled(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
 			temp_x += x_offset;
@@ -147,7 +208,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 float player_x = 1.5 * map_offset;
 float player_y = 1.5 * map_offset;
 float player_dir = 0;
-float player_speed = 0.1;
+float player_speed = 1;
 float player_turn_speed = 0.003;
 
 void minimap(SDL_Renderer *render){
@@ -260,15 +321,26 @@ int main(int argc, char* argv[]) {
 	    
 	    movement();
 	    minimap(renderer);
-
-	    ray_collision ray = map_ray(player_x, player_y, player_dir, WORLDX, renderer);
 		
-	    SDL_Color debug_col = {255, 0, 255, 255};
-	    draw_line((player_x / map_offset) * 10,
-		      (player_y / map_offset) * 10,
-		      (ray.hit_x / map_offset) * 10,
-		      (ray.hit_y / map_offset) * 10,
-		      debug_col, renderer); 
+	    for(int i = -screenx / 2; i < screenx / 2; i++){
+		int fov = 90;
+		float fov_pixel_width = (90 * (PI / 360)) / screenx;
+
+	    	ray_collision ray = map_ray(player_x, player_y, player_dir + (i * fov_pixel_width),
+						WORLDX, renderer);
+		
+		int wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
+
+		float dim = ray.vertical ? 1 : 0.7;
+		SDL_Color c = {map_colors[ray.hit].r * dim,
+			       map_colors[ray.hit].g * dim,
+			       map_colors[ray.hit].b * dim,
+			       map_colors[ray.hit].a};
+	
+		draw_line(i + screenx / 2, screeny / 2 + wall_height / 2,
+			  i + screenx / 2, screeny / 2 - wall_height / 2,
+			  c, renderer);
+	    }
 		
         // Update the screen
         SDL_RenderPresent(renderer);

@@ -1,5 +1,5 @@
 #define texture_size 12
-#define map_offset 32
+#define map_offset 160
 #include <stdio.h>
 
 Uint32 floor_texture[] = {
