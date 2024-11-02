@@ -107,16 +107,16 @@ void movement(){
 	if(keyboard[SDLK_d])
 		player_dir += player_turn_speed;
 	
-	if(world[(int)(
-				((player_x + deltax) / map_offset) + 
-				((player_y / map_offset) * WORLDX)
-			   )] == 0){
+	if(world[
+				(int)((player_x + deltax) / map_offset) + 
+				(int)(player_y / map_offset) * WORLDX
+			   ] == 0){
 		player_x += deltax;
 	}
-	if(world[(int)(
-				(player_x / map_offset) + 
-				(((player_y + deltay) / map_offset) * WORLDX)
-			   )] == 0){
+	if(world[
+				(int)(player_x / map_offset) + 
+				(int)((player_y + deltay) / map_offset) * WORLDX
+			   ] == 0){
 		player_y += deltay;
 	}
 }
