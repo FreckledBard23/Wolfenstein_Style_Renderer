@@ -9,6 +9,14 @@
 // To use time library of C
 #include <time.h>
 
+#define screenx 400
+#define screeny 300
+
+Uint32 pixels[screenx * screeny];
+
+#include <world.h>
+#include <textures.h>
+
 bool keyboard[255];
  
 void delay(float number_of_seconds)
@@ -24,13 +32,11 @@ void delay(float number_of_seconds)
         ;
 }
 
-#define screenx 400
-#define screeny 300
-
-Uint32 pixels[screenx * screeny];
-
-#include <world.h>
-#include <textures.h>
+float distance(float x1, float y1, float x2, float y2){
+    float a = abs(x1 - x2);
+    float b = abs(y1 - y2);
+    return sqrt(a * a + b * b);
+}
 
 void draw_line(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * render) {
 	SDL_SetRenderDrawColor(render, color.r, color.g, color.b, color.a);
@@ -57,10 +63,85 @@ void draw_box_filled(SDL_Renderer *render, int x, int y, SDL_Color color, int xs
     	SDL_RenderDrawRect(render, &rect);
 }
 
-float distance(int x1, int y1, int x2, int y2){
-    float a = abs(x1 - x2);
-    float b = abs(y1 - y2);
-    return sqrt(a * a + b * b);
+typedef struct {
+	float dist;
+	int hit;
+	bool vertical;
+	float hit_x;
+	float hit_y;
+} ray_collision;
+
+ray_collision map_ray(float source_x, float source_y, float source_direction, int range, SDL_Renderer * render){
+	//fix random errors where rays shoot backwards
+	float direction = source_direction;
+	if(source_direction < -PI)
+		direction += 2 * PI;
+	if(source_direction > PI)
+		direction -= 2 * PI;
+
+	ray_collision ray = {1000, 0, false};
+	
+	float temp_x = source_x;
+	float temp_y = source_y;
+
+	//horizontal line checks
+	float x_offset = tan(direction) * map_offset;
+	float y_offset = map_offset;
+
+	float nearest_border = map_offset - ((int)source_y % map_offset);
+	
+	bool flipped = false;
+
+	//check if looking to a negative y
+	if(direction > PI / 2 || direction < -PI / 2){
+		y_offset = -map_offset;
+		x_offset *= -1;
+		nearest_border = -((int)source_y % map_offset);
+		flipped = true;
+	}
+	
+	//move to nearest horizontal line
+	temp_y += nearest_border;
+	if(!flipped){
+		temp_x += (nearest_border / map_offset) * x_offset;
+	} else {
+		temp_x -= (nearest_border / map_offset) * x_offset;
+		temp_y -= 1;
+	}
+		
+	int lines_checked = 0;
+
+	//check if not looking straight up / straight down
+	if(direction != PI / 2 && direction != -PI / 2){
+		//check range number of horizontal lines
+		while(lines_checked < range){
+			lines_checked += 1;
+
+			if(!(temp_x < 0 || temp_x > WORLDX * map_offset || 
+			     temp_y < 0 || temp_y > WORLDY * map_offset)){
+				int wall = world[(int)(temp_x / map_offset) + 
+					         (int)(temp_y / map_offset) * WORLDX];
+				if(wall != 0){
+					ray.dist = distance(source_x, source_y,
+							    temp_x,   temp_y);
+					ray.hit = wall;
+					ray.vertical = false;
+
+					ray.hit_x = temp_x;
+					ray.hit_y = temp_y;
+
+					lines_checked = range;
+				}
+			} else {lines_checked = range;}
+			
+			//SDL_Color c = {255, 255, 255, 255};
+			//draw_box_filled(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			temp_x += x_offset;
+			temp_y += y_offset;
+		}
+	}
+
+	return ray;
 }
 
 float player_x = 1.5 * map_offset;
@@ -106,6 +187,11 @@ void movement(){
 		player_dir -= player_turn_speed;
 	if(keyboard[SDLK_d])
 		player_dir += player_turn_speed;
+
+	if(player_dir > PI)
+		player_dir -= 2 * PI;
+	if(player_dir < -PI)
+		player_dir += 2 * PI;
 	
 	if(world[
 				(int)((player_x + deltax) / map_offset) + 
@@ -174,6 +260,15 @@ int main(int argc, char* argv[]) {
 	    
 	    movement();
 	    minimap(renderer);
+
+	    ray_collision ray = map_ray(player_x, player_y, player_dir, WORLDX, renderer);
+		
+	    SDL_Color debug_col = {255, 0, 255, 255};
+	    draw_line((player_x / map_offset) * 10,
+		      (player_y / map_offset) * 10,
+		      (ray.hit_x / map_offset) * 10,
+		      (ray.hit_y / map_offset) * 10,
+		      debug_col, renderer); 
 		
         // Update the screen
         SDL_RenderPresent(renderer);
