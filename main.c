@@ -8,8 +8,8 @@
 #include <time.h>
 
 //screen size
-#define screenx 400
-#define screeny 300
+#define screenx 1000
+#define screeny 700
 
 //pixel buffer - not really used currently but useful
 Uint32 pixels[screenx * screeny];
@@ -77,6 +77,7 @@ typedef struct {
 	bool vertical;
 	float hit_x;
 	float hit_y;
+	int texture_column;
 } ray_collision;
 
 //shoots a ray out from source in a direction for a range (number of horizontal / vertical lines
@@ -90,7 +91,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		direction -= 2 * PI;
 	
 	//init ray with extremely high starting distance
-	ray_collision ray = {0xFFFFFF, 0, false};
+	ray_collision ray = {0xFFFFFF, 0, false, 0, 0, 0};
 	
 	//stores the temporary location of the ray
 	float temp_x = source_x;
@@ -147,6 +148,9 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 
 					ray.hit_x = temp_x;
 					ray.hit_y = temp_y;
+
+					ray.texture_column = ((int)temp_x % map_offset) * 
+							     (texture_size / map_offset);
 
 					lines_checked = range;
 				}
@@ -218,6 +222,9 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 
 					ray.hit_x = temp_x;
 					ray.hit_y = temp_y;
+					
+					ray.texture_column = ((int)temp_y % map_offset) * 
+							     (texture_size / map_offset);
 
 					lines_checked = range;
 				}
@@ -359,7 +366,7 @@ int main(int argc, char* argv[]) {
 	    movement();
 	    
 		//debug
-	    minimap(renderer);
+	    //minimap(renderer);
 	    
 	    //render walls
 	    for(int i = -screenx / 2; i < screenx / 2; i++){
@@ -372,19 +379,26 @@ int main(int argc, char* argv[]) {
 						WORLDX, renderer);
 		
 		//calculate wall height based on screen height
-		int wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
+		float wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
 		
-		//get color (will be removed or changed when textured walls)
+		//wall texture starting index
+		int texture_index = (ray.hit - 1) * (texture_size * texture_size) + ray.texture_column;
+
 		float dim = ray.vertical ? 1 : 0.7;
-		SDL_Color c = {map_colors[ray.hit].r * dim,
-			       map_colors[ray.hit].g * dim,
-			       map_colors[ray.hit].b * dim,
-			       map_colors[ray.hit].a};
+
+		float line_offset = (wall_height / texture_size);
 		
-		//draw wall
-		draw_line(i + screenx / 2, screeny / 2 + wall_height / 2,
-			  i + screenx / 2, screeny / 2 - wall_height / 2,
-			  c, renderer);
+		for(int j = 0; j < texture_size; j++){
+			SDL_Color c = {((wall_textures[texture_index + (j * texture_size)] & 0xFF0000) >> 16) * dim,
+				       ((wall_textures[texture_index + (j * texture_size)] & 0xFF00) >> 8) * dim,
+				        (wall_textures[texture_index + (j * texture_size)] & 0xFF) * dim,
+				       255};
+
+			//draw wall
+			draw_line(i + screenx / 2, screeny / 2 - wall_height / 2 + line_offset * j,
+				  i + screenx / 2, screeny / 2 - wall_height / 2 + line_offset * (j + 1),
+				  c, renderer);
+		}
 	    }
 		
         // Update the screen
