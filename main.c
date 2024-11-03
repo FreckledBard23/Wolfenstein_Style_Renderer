@@ -8,8 +8,8 @@
 #include <time.h>
 
 //screen size
-#define screenx 1000
-#define screeny 700
+#define screenx 1920
+#define screeny 1080
 
 //pixel buffer - not really used currently but useful
 Uint32 pixels[screenx * screeny];
@@ -34,6 +34,11 @@ void delay(float number_of_seconds)
     while (clock() < start_time + milli_seconds)
         ;
 }
+
+//deltaTime variables  (https://gamedev.stackexchange.com/questions/110825/how-to-calculate-delta-time-with-sdl)
+Uint64 dt_now = 0;
+Uint64 dt_last = 0;
+double deltaTime = 0;
 
 //self explanatory
 float distance(float x1, float y1, float x2, float y2){
@@ -150,7 +155,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 					ray.hit_y = temp_y;
 
 					ray.texture_column = ((int)temp_x % map_offset) * 
-							     (texture_size / map_offset);
+							     ((float)texture_size / (float)map_offset);
 
 					lines_checked = range;
 				}
@@ -224,7 +229,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 					ray.hit_y = temp_y;
 					
 					ray.texture_column = ((int)temp_y % map_offset) * 
-							     (texture_size / map_offset);
+							     ((float)texture_size / (float)map_offset);
 
 					lines_checked = range;
 				}
@@ -246,8 +251,8 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 float player_x = 1.5 * map_offset;
 float player_y = 1.5 * map_offset;
 float player_dir = 0;
-float player_speed = 1;
-float player_turn_speed = 0.003;
+float player_speed = 500;
+float player_turn_speed = 1.5;
 
 //render tiny debug minimap in top left corner
 void minimap(SDL_Renderer *render){
@@ -277,17 +282,17 @@ void movement(){
 	float deltax = 0;
 	float deltay = 0;
 	if(keyboard[SDLK_w]){
-		deltax = sin(player_dir) * player_speed;
-		deltay = cos(player_dir) * player_speed;
+		deltax = sin(player_dir) * player_speed * deltaTime;
+		deltay = cos(player_dir) * player_speed * deltaTime;
 	}
 	if(keyboard[SDLK_s]){
-		deltax = -sin(player_dir) * player_speed;
-		deltay = -cos(player_dir) * player_speed;
+		deltax = -sin(player_dir) * player_speed * deltaTime;
+		deltay = -cos(player_dir) * player_speed * deltaTime;
 	}
 	if(keyboard[SDLK_a])
-		player_dir -= player_turn_speed;
+		player_dir -= player_turn_speed * deltaTime;
 	if(keyboard[SDLK_d])
-		player_dir += player_turn_speed;
+		player_dir += player_turn_speed * deltaTime;
 
 	if(player_dir > PI)
 		player_dir -= 2 * PI;
@@ -295,14 +300,14 @@ void movement(){
 		player_dir += 2 * PI;
 	
 	if(world[
-				(int)((player_x + deltax) / map_offset) + 
+				(int)((player_x + deltax * 2) / map_offset) + 
 				(int)(player_y / map_offset) * WORLDX
 			   ] == 0){
 		player_x += deltax;
 	}
 	if(world[
 				(int)(player_x / map_offset) + 
-				(int)((player_y + deltay) / map_offset) * WORLDX
+				(int)((player_y + deltay * 2) / map_offset) * WORLDX
 			   ] == 0){
 		player_y += deltay;
 	}
@@ -326,6 +331,12 @@ int main(int argc, char* argv[]) {
 
     //main loop
     while (!quit) {
+	//deltaTime calculations
+	dt_last = dt_now;
+   	dt_now = SDL_GetPerformanceCounter();
+
+   	deltaTime = (double)((dt_now - dt_last)*1000 / (double)SDL_GetPerformanceFrequency() ) / 1000;
+
 	//event handling stuff
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -389,9 +400,9 @@ int main(int argc, char* argv[]) {
 		float line_offset = (wall_height / texture_size);
 		
 		for(int j = 0; j < texture_size; j++){
-			SDL_Color c = {((wall_textures[texture_index + (j * texture_size)] & 0xFF0000) >> 16) * dim,
-				       ((wall_textures[texture_index + (j * texture_size)] & 0xFF00) >> 8) * dim,
-				        (wall_textures[texture_index + (j * texture_size)] & 0xFF) * dim,
+			SDL_Color c = {((wall_textures[texture_index + j * texture_size] & 0xFF0000) >> 16) * dim,
+				       ((wall_textures[texture_index + j * texture_size] & 0xFF00) >> 8) * dim,
+				        (wall_textures[texture_index + j * texture_size] & 0xFF) * dim,
 				       255};
 
 			//draw wall
