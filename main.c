@@ -5,20 +5,23 @@
 #include <stdio.h>
 #include <math.h>
 #define PI 3.1415926535
-
-// To use time library of C
 #include <time.h>
 
+//screen size
 #define screenx 400
 #define screeny 300
 
+//pixel buffer - not really used currently but useful
 Uint32 pixels[screenx * screeny];
 
+//custom headers
 #include <world.h>
 #include <textures.h>
 
+//stores ascii keys. extra keys need to be handled seperately
 bool keyboard[255];
- 
+
+//not even sure if this works
 void delay(float number_of_seconds)
 {
     // Converting time into milli_seconds
@@ -32,27 +35,31 @@ void delay(float number_of_seconds)
         ;
 }
 
+//self explanatory
 float distance(float x1, float y1, float x2, float y2){
     float a = abs(x1 - x2);
     float b = abs(y1 - y2);
     return sqrt(a * a + b * b);
 }
 
+//uses SDL draw line
 void draw_line(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * render) {
 	SDL_SetRenderDrawColor(render, color.r, color.g, color.b, color.a);
 	SDL_RenderDrawLine(render, x1, y1, x2, y2);
 }
 
+//uses the old pixel buffer
 void setPixel(Uint32 color, int x, int y){
     pixels[y * screenx + x] = color;
 }
 
+//uses old pixel buffer
 void clear_screen(Uint32 color){
     for(int i = 0; i < screeny * screenx; ++i){pixels[i] = color;}
 }
 
-//takes in center x and y and x and y side lengths to draw a filled rectangle
-void draw_box_filled(SDL_Renderer *render, int x, int y, SDL_Color color, int xside, int yside){
+//takes in center x and y and x and y side lengths to draw a empty rectangle
+void draw_box(SDL_Renderer *render, int x, int y, SDL_Color color, int xside, int yside){
 	SDL_Rect rect;
 	rect.x = x;
 	rect.y = y;
@@ -63,6 +70,7 @@ void draw_box_filled(SDL_Renderer *render, int x, int y, SDL_Color color, int xs
     	SDL_RenderDrawRect(render, &rect);
 }
 
+//return value for map_ray
 typedef struct {
 	float dist;
 	int hit;
@@ -71,6 +79,8 @@ typedef struct {
 	float hit_y;
 } ray_collision;
 
+//shoots a ray out from source in a direction for a range (number of horizontal / vertical lines
+//crossed), SDL_Renderer left over from debug
 ray_collision map_ray(float source_x, float source_y, float source_direction, int range, SDL_Renderer * render){
 	//fix random errors where rays shoot backwards
 	float direction = source_direction;
@@ -78,16 +88,19 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		direction += 2 * PI;
 	if(source_direction > PI)
 		direction -= 2 * PI;
-
-	ray_collision ray = {100000, 0, false};
 	
+	//init ray with extremely high starting distance
+	ray_collision ray = {0xFFFFFF, 0, false};
+	
+	//stores the temporary location of the ray
 	float temp_x = source_x;
 	float temp_y = source_y;
 
-	//horizontal line checks
+	//starting horizontal line checks
 	float x_offset = tan(direction) * map_offset;
 	float y_offset = map_offset;
-
+	
+	//nearest horizontal line
 	float nearest_border = map_offset - (source_y - ((int)(source_y / map_offset) * map_offset));
 	
 	bool flipped = false;
@@ -100,7 +113,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		flipped = true;
 	}
 	
-	//move to nearest horizontal line
+	//move to nearest horizontal line, using nearest border
 	temp_y += nearest_border;
 	if(!flipped){
 		temp_x += (nearest_border / map_offset) * x_offset;
@@ -111,17 +124,22 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		
 	int lines_checked = 0;
 
-	//check if not looking straight up / straight down
+	//check if not looking straight left / straight right
 	if(direction != PI / 2 && direction != -PI / 2){
 		//check range number of horizontal lines
 		while(lines_checked < range){
 			lines_checked += 1;
-
+			
+			//if on the map
 			if(!(temp_x < 0 || temp_x > WORLDX * map_offset || 
 			     temp_y < 0 || temp_y > WORLDY * map_offset)){
+				//grab current cell
 				int wall = world[(int)(temp_x / map_offset) + 
 					         (int)(temp_y / map_offset) * WORLDX];
+
+				//if hit
 				if(wall != 0){
+					//store distance, final position, wall type, etc.
 					ray.dist = distance(source_x, source_y,
 							    temp_x,   temp_y);
 					ray.hit = wall;
@@ -135,19 +153,23 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 			} else {lines_checked = range;}
 			
 			//SDL_Color c = {255, 255, 0, 255};
-			//draw_box_filled(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			//draw_box(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			
+			//advance ray to next line
 			temp_x += x_offset;
 			temp_y += y_offset;
 		}
 	}
 	
+	//reset temp position
 	temp_x = source_x;
 	temp_y = source_y;
 
-	//horizontal line checks
+	//vertical line checks
 	y_offset = -tan(direction + PI / 2) * map_offset;
 	x_offset = map_offset;
 
+	//nearest vertical border
 	nearest_border = map_offset - (source_x - ((int)(source_x / map_offset) * map_offset));
 	
 	flipped = false;
@@ -160,7 +182,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		flipped = true;
 	}
 	
-	//move to nearest horizontal line
+	//move to nearest vertical line
 	temp_x += nearest_border;
 	if(!flipped){
 		temp_y += (nearest_border / map_offset) * y_offset;
@@ -173,16 +195,22 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 
 	//check if not looking straight up / straight down
 	if(direction != PI && direction != 0 && direction != -PI){
-		//check range number of horizontal lines
+		//check range number of vertical lines
 		while(lines_checked < range){
 			lines_checked += 1;
-
+			
+			//if on the map
 			if(!(temp_x < 0 || temp_x > WORLDX * map_offset || 
 			     temp_y < 0 || temp_y > WORLDY * map_offset)){
+
+				//get current wall
 				int wall = world[(int)(temp_x / map_offset) + 
 					         (int)(temp_y / map_offset) * WORLDX];
+				//get distance to compare with existing distance
 				float v_distance = distance(source_x, source_y,
 							    temp_x  , temp_y  );
+
+				//if closer than horizontal line check put in all neccisary data
 				if(wall != 0 && ray.dist >= v_distance){
 					ray.dist = v_distance;
 					ray.hit = wall;
@@ -196,7 +224,9 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 			} else {lines_checked = range;}
 			
 			//SDL_Color c = {255, 255, 255, 255};
-			//draw_box_filled(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			//draw_box(render, (temp_x / map_offset) * 10, (temp_y / map_offset) * 10, c, 3, 3); 
+			
+			//advance temporary position
 			temp_x += x_offset;
 			temp_y += y_offset;
 		}
@@ -205,21 +235,23 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 	return ray;
 }
 
+//player data
 float player_x = 1.5 * map_offset;
 float player_y = 1.5 * map_offset;
 float player_dir = 0;
 float player_speed = 1;
 float player_turn_speed = 0.003;
 
+//render tiny debug minimap in top left corner
 void minimap(SDL_Renderer *render){
 	for(int i = 0; i < WORLDX; i++){
 		for(int j = 0; j < WORLDY; j++){
-			draw_box_filled(render, i * 10, j * 10, map_colors[world[j * WORLDX + i]], 9, 9);
+			draw_box(render, i * 10, j * 10, map_colors[world[j * WORLDX + i]], 9, 9);
 		}
 	}
 	
 	SDL_Color player_col = {0, 255, 255, 255};
-	draw_box_filled(render, (player_x / map_offset) * 10 - 2,
+	draw_box(render, (player_x / map_offset) * 10 - 2,
 				(player_y / map_offset) * 10 - 2,
 				player_col,
 				5,
@@ -233,6 +265,7 @@ void minimap(SDL_Renderer *render){
 		  render);
 }
 
+//handle player movement
 void movement(){
 	float deltax = 0;
 	float deltay = 0;
@@ -269,7 +302,7 @@ void movement(){
 }
 
 int main(int argc, char* argv[]) {
-
+	//init all SDL things
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Window* window = SDL_CreateWindow("main", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, screenx, screeny, SDL_WINDOW_SHOWN);
@@ -279,11 +312,14 @@ int main(int argc, char* argv[]) {
     bool quit = false;
 
     SDL_Event event;
-
+	
+    //init keyboard buffer
     for(int i = 0; i < 255; i++)
 	    keyboard[i] = false;
 
+    //main loop
     while (!quit) {
+	//event handling stuff
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 quit = true;
@@ -293,7 +329,8 @@ int main(int argc, char* argv[]) {
                     quit = true;
                 }
             }
-
+		
+	    //keyboard logic
 	    switch(event.type)
             {
             	case SDL_KEYDOWN:
@@ -307,7 +344,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Update the texture with the pixel data
+        // Update the texture with the old pixel buffer
         SDL_UpdateTexture(texture, NULL, pixels, screenx * sizeof(Uint32));
 
         // Clear the renderer
@@ -320,23 +357,31 @@ int main(int argc, char* argv[]) {
 	    clear_screen(0);
 	    
 	    movement();
+	    
+		//debug
 	    minimap(renderer);
-		
+	    
+	    //render walls
 	    for(int i = -screenx / 2; i < screenx / 2; i++){
+		//calculate angle between each ray based on fov
 		int fov = 90;
 		float fov_pixel_width = (90 * (PI / 360)) / screenx;
-
+		
+		//cast ray
 	    	ray_collision ray = map_ray(player_x, player_y, player_dir + (i * fov_pixel_width),
 						WORLDX, renderer);
 		
+		//calculate wall height based on screen height
 		int wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
-
+		
+		//get color (will be removed or changed when textured walls)
 		float dim = ray.vertical ? 1 : 0.7;
 		SDL_Color c = {map_colors[ray.hit].r * dim,
 			       map_colors[ray.hit].g * dim,
 			       map_colors[ray.hit].b * dim,
 			       map_colors[ray.hit].a};
-	
+		
+		//draw wall
 		draw_line(i + screenx / 2, screeny / 2 + wall_height / 2,
 			  i + screenx / 2, screeny / 2 - wall_height / 2,
 			  c, renderer);
