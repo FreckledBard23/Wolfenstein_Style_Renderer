@@ -252,7 +252,17 @@ float player_x = 1.5 * map_offset;
 float player_y = 1.5 * map_offset;
 float player_dir = 0;
 float player_speed = 500;
-float player_turn_speed = 1.5;
+float player_turn_speed = 0.6;
+
+//for camera bobbing and dash effects
+float player_z = 100;
+float camera_bob = 0;
+float camera_bob_strength = 100;
+float camera_bob_speed = 8;
+
+//mouse data
+float mouseX = 0;
+float mouseY = 0;	
 
 //render tiny debug minimap in top left corner
 void minimap(SDL_Renderer *render){
@@ -279,26 +289,46 @@ void minimap(SDL_Renderer *render){
 
 //handle player movement
 void movement(){
+	bool bob_camera = false;
+
+	player_dir += (player_turn_speed * mouseX) * deltaTime;
+
 	float deltax = 0;
 	float deltay = 0;
 	if(keyboard[SDLK_w]){
-		deltax = sin(player_dir) * player_speed * deltaTime;
-		deltay = cos(player_dir) * player_speed * deltaTime;
+		deltax += sin(player_dir);
+		deltay += cos(player_dir);
+		bob_camera = true;
 	}
 	if(keyboard[SDLK_s]){
-		deltax = -sin(player_dir) * player_speed * deltaTime;
-		deltay = -cos(player_dir) * player_speed * deltaTime;
+		deltax += -sin(player_dir);
+		deltay += -cos(player_dir);
+		bob_camera = true;
 	}
-	if(keyboard[SDLK_a])
-		player_dir -= player_turn_speed * deltaTime;
-	if(keyboard[SDLK_d])
-		player_dir += player_turn_speed * deltaTime;
+	if(keyboard[SDLK_a]){
+		deltax += -cos(-player_dir);
+		deltay += -sin(-player_dir);
+		bob_camera = true;
+	}
+	if(keyboard[SDLK_d]){
+		deltax += cos(-player_dir);
+		deltay += sin(-player_dir);
+		bob_camera = true;
+	}
 
 	if(player_dir > PI)
 		player_dir -= 2 * PI;
 	if(player_dir < -PI)
 		player_dir += 2 * PI;
+
+	//normalize movement
+	float normalize_factor = sqrt((deltax * deltax) + (deltay * deltay));
+	deltax = (deltax / normalize_factor) * player_speed * deltaTime;
+	deltay = (deltay / normalize_factor) * player_speed * deltaTime;
 	
+	if(bob_camera)
+		camera_bob += camera_bob_speed * deltaTime;
+
 	if(world[
 				(int)((player_x + deltax * 2) / map_offset) + 
 				(int)(player_y / map_offset) * WORLDX
@@ -328,6 +358,8 @@ int main(int argc, char* argv[]) {
     //init keyboard buffer
     for(int i = 0; i < 255; i++)
 	    keyboard[i] = false;
+
+    SDL_ShowCursor(SDL_DISABLE);
 
     //main loop
     while (!quit) {
@@ -359,7 +391,18 @@ int main(int argc, char* argv[]) {
 			if(event.key.keysym.sym < 255)
                 		keyboard[event.key.keysym.sym] = false;
                 	break;
-            }
+
+		case SDL_MOUSEMOTION:
+                	// Get the mouse movement and smooth out
+			mouseX = event.motion.xrel;
+			mouseY = event.motion.yrel;
+
+        	        if(mouseX != 0 || mouseY != 0){
+       		                // Clamp the mouse to the center of the screen
+                    		SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
+                	}
+			break;
+	    }
         }
 
         // Update the texture with the old pixel buffer
@@ -382,8 +425,8 @@ int main(int argc, char* argv[]) {
 	    //render walls
 	    for(int i = -screenx / 2; i < screenx / 2; i++){
 		//calculate angle between each ray based on fov
-		int fov = 90;
-		float fov_pixel_width = (90 * (PI / 360)) / screenx;
+		int fov = 150;
+		float fov_pixel_width = (fov * (PI / 360.0)) / (float)screenx;
 		
 		//cast ray
 	    	ray_collision ray = map_ray(player_x, player_y, player_dir + (i * fov_pixel_width),
@@ -399,15 +442,18 @@ int main(int argc, char* argv[]) {
 
 		float line_offset = (wall_height / texture_size);
 		
+		float camera_bob_offset = sin(camera_bob) * camera_bob_strength;
+		float z_offset = ((player_z * 100) / ray.dist) + (abs(camera_bob_offset * 100) / ray.dist);
+
 		for(int j = 0; j < texture_size; j++){
 			SDL_Color c = {((wall_textures[texture_index + j * texture_size] & 0xFF0000) >> 16) * dim,
 				       ((wall_textures[texture_index + j * texture_size] & 0xFF00) >> 8) * dim,
 				        (wall_textures[texture_index + j * texture_size] & 0xFF) * dim,
 				       255};
-
+			
 			//draw wall
-			draw_line(i + screenx / 2, screeny / 2 - wall_height / 2 + line_offset * j,
-				  i + screenx / 2, screeny / 2 - wall_height / 2 + line_offset * (j + 1),
+			draw_line(i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * j,
+				  i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * (j + 1),
 				  c, renderer);
 		}
 	    }
