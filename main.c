@@ -20,6 +20,7 @@ Uint32 pixels[screenx * screeny];
 
 //stores ascii keys. extra keys need to be handled seperately
 bool keyboard[255];
+bool shift_key;
 
 //not even sure if this works
 void delay(float number_of_seconds)
@@ -251,14 +252,40 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 float player_x = 1.5 * map_offset;
 float player_y = 1.5 * map_offset;
 float player_dir = 0;
-float player_speed = 500;
-float player_turn_speed = 0.6;
 
-//for camera bobbing and dash effects
-float player_z = 100;
+//player speed
+float player_speed = 500;
+float player_turn_speed = 0.4;
+
+//for camera bobbing
+float player_z = 50;
 float camera_bob = 0;
 float camera_bob_strength = 100;
 float camera_bob_speed = 8;
+
+//camera tilt
+float forward_tilt = 0;
+float side_tilt = 0;
+float f_tilt_target = 0;
+float s_tilt_target = 0;
+
+//camera tilt strength
+float f_tilt_strength = 75;
+float s_tilt_strength = 0.04;
+float f_dash_tilt_strength = 7.5; //regular effect multiplyer
+float s_dash_tilt_strength = 15; // ^^^^
+
+//dash control
+float dash_effect = 1;
+float dash_strength = 10;
+float dash_falloff = 0.15;
+bool dash_debounce = true;
+
+//dash recharging
+int dashes_remaining = 0;
+float dash_recharger = 0;
+float max_dashes = 2;
+float seconds_per_dash_recharge = 1;
 
 //mouse data
 float mouseX = 0;
@@ -289,42 +316,82 @@ void minimap(SDL_Renderer *render){
 
 //handle player movement
 void movement(){
+	//smooth out camera tilt
+	forward_tilt = (forward_tilt * 0.85) + (f_tilt_target * 0.15);
+	side_tilt = (side_tilt * 0.85) + (s_tilt_target * 0.15);
+	
+	//make camera tilt return to zero if nothing is pressed
+	f_tilt_target = 0;
+	s_tilt_target = 0;
+	
+	//prevent camera bobbing if nothing is pressed
 	bool bob_camera = false;
-
+	
+	//turning the player
 	player_dir += (player_turn_speed * mouseX) * deltaTime;
-
+	
+	//standard movement
 	float deltax = 0;
 	float deltay = 0;
 	if(keyboard[SDLK_w]){
 		deltax += sin(player_dir);
 		deltay += cos(player_dir);
 		bob_camera = true;
+		f_tilt_target = -f_tilt_strength;
 	}
 	if(keyboard[SDLK_s]){
 		deltax += -sin(player_dir);
 		deltay += -cos(player_dir);
 		bob_camera = true;
+		f_tilt_target = f_tilt_strength;
 	}
 	if(keyboard[SDLK_a]){
 		deltax += -cos(-player_dir);
 		deltay += -sin(-player_dir);
 		bob_camera = true;
+		s_tilt_target = s_tilt_strength;
 	}
 	if(keyboard[SDLK_d]){
 		deltax += cos(-player_dir);
 		deltay += sin(-player_dir);
 		bob_camera = true;
+		s_tilt_target = -s_tilt_strength;
 	}
-
+	
+	//prevent weird errors in raycaster
 	if(player_dir > PI)
 		player_dir -= 2 * PI;
 	if(player_dir < -PI)
 		player_dir += 2 * PI;
 
+	//handle dash
+	dash_effect = dash_falloff + (dash_effect * (1 - dash_falloff));
+	if(shift_key && dash_debounce && (deltax != 0 || deltay != 0) && dashes_remaining > 0){
+		dash_debounce = false;
+		dash_effect = dash_strength;
+		
+		f_tilt_target *= f_dash_tilt_strength;
+		s_tilt_target *= s_dash_tilt_strength;
+
+		dashes_remaining -= 1;
+	}
+
+	if(!shift_key)
+		dash_debounce = true;
+
+	if(dashes_remaining == 0){
+		dash_recharger += deltaTime;
+
+		if(dash_recharger >= seconds_per_dash_recharge){
+			dashes_remaining = max_dashes;
+			dash_recharger = 0;
+		}
+	}
+
 	//normalize movement
 	float normalize_factor = sqrt((deltax * deltax) + (deltay * deltay));
-	deltax = (deltax / normalize_factor) * player_speed * deltaTime;
-	deltay = (deltay / normalize_factor) * player_speed * deltaTime;
+	deltax = (deltax / normalize_factor) * player_speed * dash_effect * deltaTime;
+	deltay = (deltay / normalize_factor) * player_speed * dash_effect * deltaTime;
 	
 	if(bob_camera)
 		camera_bob += camera_bob_speed * deltaTime;
@@ -379,17 +446,22 @@ int main(int argc, char* argv[]) {
                     quit = true;
                 }
             }
-		
+
 	    //keyboard logic
 	    switch(event.type)
             {
             	case SDL_KEYDOWN:
 			if(event.key.keysym.sym < 255)
                 		keyboard[event.key.keysym.sym] = true;
+			if(event.key.keysym.sym == SDLK_LSHIFT)
+				shift_key = true;
+
                 	break;
             	case SDL_KEYUP:
 			if(event.key.keysym.sym < 255)
                 		keyboard[event.key.keysym.sym] = false;
+			if(event.key.keysym.sym == SDLK_LSHIFT)
+				shift_key = false;
                 	break;
 
 		case SDL_MOUSEMOTION:
@@ -431,6 +503,8 @@ int main(int argc, char* argv[]) {
 		//cast ray
 	    	ray_collision ray = map_ray(player_x, player_y, player_dir + (i * fov_pixel_width),
 						WORLDX, renderer);
+
+		float fixed_ray_dist = ray.dist * cos(i * fov_pixel_width);
 		
 		//calculate wall height based on screen height
 		float wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
@@ -442,8 +516,9 @@ int main(int argc, char* argv[]) {
 
 		float line_offset = (wall_height / texture_size);
 		
+		float tilt_offset = forward_tilt + side_tilt * i;
 		float camera_bob_offset = sin(camera_bob) * camera_bob_strength;
-		float z_offset = ((player_z * 100) / ray.dist) + (abs(camera_bob_offset * 100) / ray.dist);
+		float z_offset = tilt_offset + ((player_z * 100) / fixed_ray_dist) + (abs(camera_bob_offset * 100) / fixed_ray_dist);
 
 		for(int j = 0; j < texture_size; j++){
 			SDL_Color c = {((wall_textures[texture_index + j * texture_size] & 0xFF0000) >> 16) * dim,
