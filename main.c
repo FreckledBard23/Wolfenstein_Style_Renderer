@@ -8,8 +8,8 @@
 #include <time.h>
 
 //screen size
-#define screenx 1920
-#define screeny 1080
+#define screenx 500
+#define screeny 300
 
 //pixel buffer - not really used currently but useful
 Uint32 pixels[screenx * screeny];
@@ -258,7 +258,7 @@ float player_speed = 500;
 float player_turn_speed = 0.4;
 
 //for camera bobbing
-float player_z = 50;
+float player_z = 25;
 float camera_bob = 0;
 float camera_bob_strength = 100;
 float camera_bob_speed = 8;
@@ -270,14 +270,14 @@ float f_tilt_target = 0;
 float s_tilt_target = 0;
 
 //camera tilt strength
-float f_tilt_strength = 75;
-float s_tilt_strength = 0.04;
+float f_tilt_strength = 40;
+float s_tilt_strength = 0.02;
 float f_dash_tilt_strength = 7.5; //regular effect multiplyer
 float s_dash_tilt_strength = 15; // ^^^^
 
 //dash control
 float dash_effect = 1;
-float dash_strength = 10;
+float dash_strength = 7;
 float dash_falloff = 0.15;
 bool dash_debounce = true;
 
@@ -494,14 +494,16 @@ int main(int argc, char* argv[]) {
 		//debug
 	    //minimap(renderer);
 	    
+	    //rendering
+		//calculate angle between each ray based on fov
+	    int fov = 150;
+	    float fov_pixel_width = (fov * (PI / 360.0)) / (float)screenx;
+
 	    //render walls
 	    for(int i = -screenx / 2; i < screenx / 2; i++){
-		//calculate angle between each ray based on fov
-		int fov = 150;
-		float fov_pixel_width = (fov * (PI / 360.0)) / (float)screenx;
-		
 		//cast ray
-	    	ray_collision ray = map_ray(player_x, player_y, player_dir + (i * fov_pixel_width),
+		float ray_angle = player_dir + (i * fov_pixel_width);
+	    	ray_collision ray = map_ray(player_x, player_y, ray_angle,
 						WORLDX, renderer);
 
 		float fixed_ray_dist = ray.dist * cos(i * fov_pixel_width);
@@ -519,6 +521,25 @@ int main(int argc, char* argv[]) {
 		float tilt_offset = forward_tilt + side_tilt * i;
 		float camera_bob_offset = sin(camera_bob) * camera_bob_strength;
 		float z_offset = tilt_offset + ((player_z * 100) / fixed_ray_dist) + (abs(camera_bob_offset * 100) / fixed_ray_dist);
+		
+		//render floor
+		for(int j = screeny / 2; j < screeny * 1; j++){
+			float ray_angle_fix = ray_angle < -PI ? ray_angle + 2 * PI : ray_angle;
+			      ray_angle_fix = ray_angle >  PI ? ray_angle - 2 * PI : ray_angle;
+
+			float distance_to_pixel = 100 * (screeny / 2) / ((float)j - screeny / 2 + 0.001) / cos(i * fov_pixel_width);
+			float floor_x = -distance_to_pixel * sin(ray_angle_fix);
+			float floor_y = distance_to_pixel * cos(ray_angle_fix);
+			
+			float floor_z_offset = tilt_offset + ((player_z * 100) / distance_to_pixel) + (abs(camera_bob_offset * 100) / distance_to_pixel);
+			
+			SDL_Color c = {255, 0, 255, 255};
+			if((int)((player_x - floor_x) / 10) % texture_size == 0 || (int)((player_y + floor_y) / 10) % texture_size == 0){
+				SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
+				SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset));
+				SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 1);
+			}
+		}
 
 		for(int j = 0; j < texture_size; j++){
 			SDL_Color c = {((wall_textures[texture_index + j * texture_size] & 0xFF0000) >> 16) * dim,
