@@ -270,11 +270,12 @@ float player_turn_speed = 0.8;
 float player_z = 10;
 float standing_z = 4;
 float crouching_z = -24;
-float crouch_speed = 0.15;
+float crouch_transition_speed = 0.15;
+float crouch_slowness = 0.5;
 
 //for camera bobbing
 float camera_bob = 0;
-float camera_bob_strength = 20;
+float camera_bob_strength = 15;
 float camera_bob_speed = 10;
 
 //camera tilt
@@ -303,7 +304,26 @@ float seconds_per_dash_recharge = 1;
 
 //mouse data
 float mouseX = 0;
-float mouseY = 0;	
+float mouseY = 0;
+
+//checks if player movement is valid. Checks player position + check amount * delta position. returns a Uint8. 
+//	if (returned_val & 1) {//x collision}
+//	if (returned_val & 2) {//y collision}
+Uint8 player_movement_check(float dx, float dy, int check_amount){
+	Uint8 hit_info = 0;
+
+	for(float i = 1; i <= check_amount; i += 0.5){
+		if(world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)] != 0){
+			hit_info = hit_info | 1;
+		}
+
+		if(world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)] != 0){
+			hit_info = hit_info | 2;
+		}
+	}
+	
+	return hit_info;
+}
 
 //render tiny debug minimap in top left corner
 void minimap(SDL_Renderer *render){
@@ -404,31 +424,26 @@ void movement(){
 
 	//handle crouch
 	if(ctrl_key){
-		player_z = crouching_z * crouch_speed + player_z * (1 - crouch_speed);
+		player_z = crouching_z * crouch_transition_speed + player_z * (1 - crouch_transition_speed);
 		f_tilt_target = 0;
 		s_tilt_target = 0;
 	} else {
-		player_z = standing_z * crouch_speed + player_z * (1 - crouch_speed);
+		player_z = standing_z * crouch_transition_speed + player_z * (1 - crouch_transition_speed);
 	}
 	
 	//normalize movement
 	float normalize_factor = sqrt((deltax * deltax) + (deltay * deltay));
-	deltax = (deltax / normalize_factor) * player_speed * dash_effect * deltaTime;
-	deltay = (deltay / normalize_factor) * player_speed * dash_effect * deltaTime;
+	if(normalize_factor == 0) {normalize_factor = 1;}
+	deltax = (deltax / normalize_factor) * player_speed * dash_effect * (1 - ctrl_key * crouch_slowness) * deltaTime;
+	deltay = (deltay / normalize_factor) * player_speed * dash_effect * (1 - ctrl_key * crouch_slowness) * deltaTime;
 	
 	if(bob_camera)
 		camera_bob += camera_bob_speed * deltaTime;
-
-	if(world[
-				(int)((player_x + deltax * 2) / map_offset) + 
-				(int)(player_y / map_offset) * WORLDX
-			   ] == 0){
+	
+	if(!(player_movement_check(deltax, deltay, 2) & 1)){
 		player_x += deltax;
 	}
-	if(world[
-				(int)(player_x / map_offset) + 
-				(int)((player_y + deltay * 2) / map_offset) * WORLDX
-			   ] == 0){
+	if(!(player_movement_check(deltax, deltay, 2) & 2)){
 		player_y += deltay;
 	}
 }
@@ -529,7 +544,7 @@ int main(int argc, char* argv[]) {
 	    float fov_pixel_width = (fov * (PI / 360.0)) / (float)screenx;
 
 	    //render walls
-	    for(int i = -screenx / 2; i < screenx / 2; i++){
+	    for(int i = -screenx / 2; i <= screenx / 2; i++){
 		//cast ray
 		float ray_angle = player_dir + (i * fov_pixel_width);
 	    	ray_collision ray = map_ray(player_x, player_y, ray_angle,
@@ -552,7 +567,9 @@ int main(int argc, char* argv[]) {
 		float z_offset = tilt_offset + ((player_z * 100) / fixed_ray_dist) + (abs(camera_bob_offset * 100) / fixed_ray_dist);
 		
 		//render floor
-		for(int j = -(0.6 * screeny); j < screeny * 1.2; j++){
+		//extra buffer (-60% screeny to 130% screeny) is a very dumb solution to pixels not being drawn after being shifted from camera tilt
+		//	and view bobbing
+		for(int j = -(0.6 * screeny); j < screeny * 1.3; j++){
 			float ray_angle_fix = ray_angle < -PI ? ray_angle + 2 * PI : ray_angle;
 		      		ray_angle_fix = ray_angle >  PI ? ray_angle - 2 * PI : ray_angle;
 
