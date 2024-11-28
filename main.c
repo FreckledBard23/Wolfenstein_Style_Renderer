@@ -63,6 +63,12 @@ void draw_line(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * r
 	SDL_RenderDrawLine(render, x1, y1, x2, y2);
 }
 
+//draws line over pixels covered 0xFF000000
+void draw_line_in_empty(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * render) {
+	SDL_SetRenderDrawColor(render, color.r, color.g, color.b, color.a);
+	SDL_RenderDrawLine(render, x1, y1, x2, y2);
+}
+
 //uses the old pixel buffer
 void setPixel(Uint32 color, int x, int y){
     pixels[y * screenx + x] = color;
@@ -93,11 +99,12 @@ typedef struct {
 	float hit_x;
 	float hit_y;
 	int texture_column;
+	bool transparent;
 } ray_collision;
 
 //shoots a ray out from source in a direction for a range (number of horizontal / vertical lines
 //crossed), SDL_Renderer left over from debug
-ray_collision map_ray(float source_x, float source_y, float source_direction, int range, SDL_Renderer * render){
+ray_collision map_ray(float source_x, float source_y, float source_direction, int range, bool ignore_transparents, SDL_Renderer * render){
 	//fix random errors where rays shoot backwards
 	float direction = source_direction;
 	if(source_direction < -PI)
@@ -106,7 +113,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 		direction -= 2 * PI;
 	
 	//init ray with extremely high starting distance
-	ray_collision ray = {0xFFFFFF, 0, false, 0, 0, 0};
+	ray_collision ray = {0xFFFFFF, 0, false, 0, 0, 0, false};
 	
 	//stores the temporary location of the ray
 	float temp_x = source_x;
@@ -154,7 +161,10 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 					         (int)(temp_y / map_offset) * WORLDX];
 
 				//if hit
-				if(wall != 0){
+				bool transparent = transparent_walls[wall];
+				bool transparent_continue = ignore_transparents ? !transparent : true;
+
+				if(wall != 0 && transparent_continue){
 					//store distance, final position, wall type, etc.
 					ray.dist = distance(source_x, source_y,
 							    temp_x,   temp_y);
@@ -166,6 +176,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 
 					ray.texture_column = ((int)temp_x % map_offset) * 
 							     ((float)texture_size / (float)map_offset);
+					ray.transparent = transparent;
 
 					lines_checked = range;
 				}
@@ -229,8 +240,10 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 				float v_distance = distance(source_x, source_y,
 							    temp_x  , temp_y  );
 
+				bool transparent = transparent_walls[wall];
+				bool transparent_continue = ignore_transparents ? !transparent : true;
 				//if closer than horizontal line check put in all neccisary data
-				if(wall != 0 && ray.dist >= v_distance){
+				if(wall != 0 && ray.dist >= v_distance && transparent_continue){
 					ray.dist = v_distance;
 					ray.hit = wall;
 					ray.vertical = true;
@@ -240,6 +253,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 					
 					ray.texture_column = ((int)temp_y % map_offset) * 
 							     ((float)texture_size / (float)map_offset);
+					ray.transparent = transparent;
 
 					lines_checked = range;
 				}
@@ -309,15 +323,21 @@ float mouseY = 0;
 //checks if player movement is valid. Checks player position + check amount * delta position. returns a Uint8. 
 //	if (returned_val & 1) {//x collision}
 //	if (returned_val & 2) {//y collision}
+//
+//	takes crawlspaces into account
 Uint8 player_movement_check(float dx, float dy, int check_amount){
 	Uint8 hit_info = 0;
 
 	for(float i = 1; i <= check_amount; i += 0.5){
-		if(world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)] != 0){
+		bool crawlspace = ctrl_key;
+
+		if(world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)] != 0 &&
+		   !(crawlspace && crawlspace_walls[world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)]])){
 			hit_info = hit_info | 1;
 		}
 
-		if(world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)] != 0){
+		if(world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)] != 0 && 
+		   !(crawlspace && crawlspace_walls[world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)]])){
 			hit_info = hit_info | 2;
 		}
 	}
@@ -548,7 +568,7 @@ int main(int argc, char* argv[]) {
 		//cast ray
 		float ray_angle = player_dir + (i * fov_pixel_width);
 	    	ray_collision ray = map_ray(player_x, player_y, ray_angle,
-						WORLDX, renderer);
+						WORLDX, false, renderer);
 
 		float fixed_ray_dist = ray.dist * cos(i * fov_pixel_width);
 		
@@ -620,17 +640,52 @@ int main(int argc, char* argv[]) {
 				}
 			}
 		}
+		
+		//if the ray is transparent, draw anything behind it first
+		if(ray.transparent){
+			//cast ray
+	    		ray_collision _ray = map_ray(player_x, player_y, ray_angle,
+						WORLDX, true, renderer);
+
+			float _fixed_ray_dist = _ray.dist * cos(i * fov_pixel_width);
+		
+			//calculate wall height based on screen height
+			float _wall_height = screeny / ((_ray.dist * cos(i * fov_pixel_width)) / 100);
+		
+			//wall texture starting index
+			int _texture_index = (_ray.hit - 1) * (texture_size * texture_size) + _ray.texture_column;
+
+			float _dim = _ray.vertical ? 1 : 0.7;
+
+			float _line_offset = (_wall_height / texture_size);
+		
+			float _z_offset = tilt_offset + ((player_z * 100) / _fixed_ray_dist) + (abs(camera_bob_offset * 100) / _fixed_ray_dist);
+
+			for(int j = 0; j < texture_size; j++){
+				SDL_Color c = {((wall_textures[_texture_index + j * texture_size] & 0xFF0000) >> 16) * _dim,
+					       ((wall_textures[_texture_index + j * texture_size] & 0xFF00) >> 8) * _dim,
+					        (wall_textures[_texture_index + j * texture_size] & 0xFF) * _dim,
+					       255};
+
+					//draw wall
+				draw_line_in_empty(i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * j,
+					  	   i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * (j + 1),
+						   c, renderer);
+			}
+		}
 
 		for(int j = 0; j < texture_size; j++){
 			SDL_Color c = {((wall_textures[texture_index + j * texture_size] & 0xFF0000) >> 16) * dim,
 				       ((wall_textures[texture_index + j * texture_size] & 0xFF00) >> 8) * dim,
 				        (wall_textures[texture_index + j * texture_size] & 0xFF) * dim,
 				       255};
-			
-			//draw wall
-			draw_line(i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * j,
-				  i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * (j + 1),
-				  c, renderer);
+
+			if(c.r != 0 || c.g != 0 || c.b != 0){
+				//draw wall
+				draw_line(i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * j,
+					  i + screenx / 2, z_offset + screeny / 2 - wall_height / 2 + line_offset * (j + 1),
+					  c, renderer);
+			}
 		}
 	    }
 		
