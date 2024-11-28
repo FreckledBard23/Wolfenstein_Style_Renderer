@@ -533,10 +533,7 @@ int main(int argc, char* argv[]) {
 			mouseX = event.motion.xrel;
 			mouseY = event.motion.yrel;
 
-        	        if(mouseX != 0 || mouseY != 0){
-       		                // Clamp the mouse to the center of the screen
-                    		SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
-                	}
+                    	SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
 			break;
 	    }
         }
