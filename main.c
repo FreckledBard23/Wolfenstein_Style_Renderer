@@ -45,6 +45,15 @@ int round_float(float x){
 		return (int)x + 1;
 }
 
+float clamp(float x, float min, float max){
+	if(x < min)
+		return min;
+	else if (x > max)
+		return max;
+	else
+		return x;
+}
+
 //deltaTime variables  (https://gamedev.stackexchange.com/questions/110825/how-to-calculate-delta-time-with-sdl)
 Uint64 dt_now = 0;
 Uint64 dt_last = 0;
@@ -59,12 +68,6 @@ float distance(float x1, float y1, float x2, float y2){
 
 //uses SDL draw line
 void draw_line(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * render) {
-	SDL_SetRenderDrawColor(render, color.r, color.g, color.b, color.a);
-	SDL_RenderDrawLine(render, x1, y1, x2, y2);
-}
-
-//draws line over pixels covered 0xFF000000
-void draw_line_in_empty(int x1, int y1, int x2, int y2, SDL_Color color, SDL_Renderer * render) {
 	SDL_SetRenderDrawColor(render, color.r, color.g, color.b, color.a);
 	SDL_RenderDrawLine(render, x1, y1, x2, y2);
 }
@@ -100,6 +103,7 @@ typedef struct {
 	float hit_y;
 	int texture_column;
 	bool transparent;
+	int state;
 } ray_collision;
 
 //shoots a ray out from source in a direction for a range (number of horizontal / vertical lines
@@ -178,6 +182,9 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 							     ((float)texture_size / (float)map_offset);
 					ray.transparent = transparent;
 
+					ray.state = world_state[(int)(temp_x / map_offset) + 
+					         		(int)(temp_y / map_offset) * WORLDX];
+
 					lines_checked = range;
 				}
 			} else {lines_checked = range;}
@@ -254,6 +261,9 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 					ray.texture_column = ((int)temp_y % map_offset) * 
 							     ((float)texture_size / (float)map_offset);
 					ray.transparent = transparent;
+					
+					ray.state = world_state[(int)(temp_x / map_offset) + 
+					         		(int)(temp_y / map_offset) * WORLDX];
 
 					lines_checked = range;
 				}
@@ -320,6 +330,10 @@ float seconds_per_dash_recharge = 1;
 float mouseX = 0;
 float mouseY = 0;
 
+//for doors
+float door_speed = 1;
+float use_range = map_offset;
+
 //checks if player movement is valid. Checks player position + check amount * delta position. returns a Uint8. 
 //	if (returned_val & 1) {//x collision}
 //	if (returned_val & 2) {//y collision}
@@ -330,14 +344,18 @@ Uint8 player_movement_check(float dx, float dy, int check_amount){
 
 	for(float i = 1; i <= check_amount; i += 0.5){
 		bool crawlspace = ctrl_key;
+		int world_index_dx = (int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset);
+		int world_index_dy = (int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset);
 
-		if(world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)] != 0 &&
-		   !(crawlspace && crawlspace_walls[world[(int)((player_x + dx * i) / map_offset) + WORLDX * (int)(player_y / map_offset)]])){
+		if(world[world_index_dx] != 0 &&
+		   !(crawlspace && crawlspace_walls[world[world_index_dx]]) &&
+		   !(doors[world[world_index_dx]] && world_state[world_index_dx] == texture_size - 1)){
 			hit_info = hit_info | 1;
 		}
 
-		if(world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)] != 0 && 
-		   !(crawlspace && crawlspace_walls[world[(int)(player_x / map_offset) + WORLDX * (int)((player_y + dy * i) / map_offset)]])){
+		if(world[world_index_dy] != 0 && 
+		   !(crawlspace && crawlspace_walls[world[world_index_dy]]) && 
+		   !(doors[world[world_index_dy]] && world_state[world_index_dy] == texture_size - 1)){
 			hit_info = hit_info | 2;
 		}
 	}
@@ -368,6 +386,14 @@ void minimap(SDL_Renderer *render){
 		  render);
 }
 
+//define keys
+//basic rebinding for players
+#define player_forward SDLK_w
+#define player_backward SDLK_s
+#define player_left SDLK_a
+#define player_right SDLK_d
+#define player_use SDLK_q
+
 //handle player movement
 void movement(){
 	//smooth out camera tilt
@@ -387,25 +413,25 @@ void movement(){
 	//standard movement
 	float deltax = 0;
 	float deltay = 0;
-	if(keyboard[SDLK_w]){
+	if(keyboard[player_forward]){
 		deltax += sin(player_dir);
 		deltay += cos(player_dir);
 		bob_camera = true;
 		f_tilt_target = -f_tilt_strength;
 	}
-	if(keyboard[SDLK_s]){
+	if(keyboard[player_backward]){
 		deltax += -sin(player_dir);
 		deltay += -cos(player_dir);
 		bob_camera = true;
 		f_tilt_target = f_tilt_strength;
 	}
-	if(keyboard[SDLK_a]){
+	if(keyboard[player_left]){
 		deltax += -cos(-player_dir);
 		deltay += -sin(-player_dir);
 		bob_camera = true;
 		s_tilt_target = s_tilt_strength;
 	}
-	if(keyboard[SDLK_d]){
+	if(keyboard[player_right]){
 		deltax += cos(-player_dir);
 		deltay += sin(-player_dir);
 		bob_camera = true;
@@ -465,6 +491,31 @@ void movement(){
 	}
 	if(!(player_movement_check(deltax, deltay, 2) & 2)){
 		player_y += deltay;
+	}
+	
+	//open doors
+	if(keyboard[player_use]){
+		int world_index = (int)((player_x + sin(player_dir) * use_range) / map_offset) +
+			       	  (int)((player_y + cos(player_dir) * use_range) / map_offset) * WORLDX;
+		
+		if(doors[world[world_index]] && world_state[world_index] == 0){
+			world_state[world_index] = 1;
+		}
+
+		if(doors[world[world_index]] && world_state[world_index] == texture_size - 1){
+			world_state[world_index] = -texture_size - 1;
+		}
+	}
+}
+
+void update_world(){
+	for(int i = 0; i < WORLDX * WORLDY; i++){
+		if(doors[world[i]] && world_state[i] != 0 && world_state[i] < texture_size - 1){
+			world_state[i] += 1;
+		}
+		if(doors[world[i]] && world_state[i] != 0 && world_state[i] < 0){
+			world_state[i] += 1;
+		}
 	}
 }
 
@@ -550,6 +601,7 @@ int main(int argc, char* argv[]) {
             //----------Render code here----------//
 	    clear_screen(0);
 	    
+	    update_world();
 	    movement();
 	    
 		//debug
@@ -572,8 +624,17 @@ int main(int argc, char* argv[]) {
 		//calculate wall height based on screen height
 		float wall_height = screeny / ((ray.dist * cos(i * fov_pixel_width)) / 100);
 		
+		//open door animation check
+		int texture_offset = 0;
+		bool draw_nothing = false;
+		if(doors[ray.hit])
+			texture_offset = -abs(ray.state);
+
+		if(ray.texture_column + texture_offset > texture_size - 1 || ray.texture_column + texture_offset < 0)
+			draw_nothing = true;
+
 		//wall texture starting index
-		int texture_index = (ray.hit - 1) * (texture_size * texture_size) + ray.texture_column;
+		int texture_index = (ray.hit - 1) * (texture_size * texture_size) + clamp(ray.texture_column + texture_offset, 0, texture_size - 1);
 
 		float dim = ray.vertical ? 1 : 0.7;
 
@@ -605,7 +666,7 @@ int main(int argc, char* argv[]) {
 						       ((floor_textures[floor_tex_index] & 0xFF00) >> 8),
 						        (floor_textures[floor_tex_index] & 0xFF),
 						       255};
-			
+
 					SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
 					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset));
 					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 1);
@@ -665,9 +726,9 @@ int main(int argc, char* argv[]) {
 					       255};
 
 					//draw wall
-				draw_line_in_empty(i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * j,
-					  	   i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * (j + 1),
-						   c, renderer);
+				draw_line(i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * j,
+					  i + screenx / 2, _z_offset + screeny / 2 - _wall_height / 2 + _line_offset * (j + 1),
+					   c, renderer);
 			}
 		}
 
@@ -676,6 +737,10 @@ int main(int argc, char* argv[]) {
 				       ((wall_textures[texture_index + j * texture_size] & 0xFF00) >> 8) * dim,
 				        (wall_textures[texture_index + j * texture_size] & 0xFF) * dim,
 				       255};
+			
+			if(draw_nothing){
+				c.r = 0; c.g = 0; c.b = 0;
+			}
 
 			if(c.r != 0 || c.g != 0 || c.b != 0){
 				//draw wall
