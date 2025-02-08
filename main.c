@@ -8,8 +8,8 @@
 #include <time.h>
 
 //screen size
-#define screenx 191
-#define screeny 108
+#define screenx 160
+#define screeny 90
 
 //pixel buffer - not really used currently but useful
 Uint32 pixels[screenx * screeny];
@@ -52,6 +52,18 @@ float clamp(float x, float min, float max){
 		return max;
 	else
 		return x;
+}
+
+float min(float x, float y){
+	if(x > y)
+		return y;
+	return x;
+}
+
+float max(float x, float y){
+	if(x > y)
+		return x;
+	return y;
 }
 
 //deltaTime variables  (https://gamedev.stackexchange.com/questions/110825/how-to-calculate-delta-time-with-sdl)
@@ -202,7 +214,7 @@ ray_collision map_ray(float source_x, float source_y, float source_direction, in
 	temp_x = source_x;
 	temp_y = source_y;
 
-	//vertical line checks
+	//vertical line checkshttps://stackoverflow.com/questions/14066933/direct-way-of-computing-the-clockwise-angle-between-two-vectors
 	y_offset = -tan(direction + PI / 2) * map_offset;
 	x_offset = map_offset;
 
@@ -288,18 +300,19 @@ float player_dir = 0;
 
 //player speed
 float player_speed = 500;
-float player_turn_speed = 0.8;
+float player_turn_speed = 1.2;
 
 //for crouching
-float player_z = 10;
-float standing_z = 4;
-float crouching_z = -24;
+float player_z = 3;
+float standing_z = 3;
+float crouching_z = -10;
+float crouch_cam_bob = 3;
 float crouch_transition_speed = 0.15;
 float crouch_slowness = 0.5;
 
 //for camera bobbing
 float camera_bob = 0;
-float camera_bob_strength = 15;
+float camera_bob_strength = 8;
 float camera_bob_speed = 10;
 
 //camera tilt
@@ -311,13 +324,13 @@ float s_tilt_target = 0;
 //camera tilt strength
 float f_tilt_strength = 10;
 float s_tilt_strength = 0.03;
-float f_dash_tilt_strength = 7.5; //regular effect multiplyer
-float s_dash_tilt_strength = 15; // ^^^^
+float f_dash_tilt_strength = 5; //regular effect multiplyer
+float s_dash_tilt_strength = 12; // ^^^^
 
 //dash control
 float dash_effect = 1;
-float dash_strength = 5;
-float dash_falloff = 0.20;
+float dash_strength = 2;
+float dash_falloff = 0.10;
 bool dash_debounce = true;
 
 //dash recharging
@@ -327,13 +340,12 @@ float max_dashes = 2;
 float seconds_per_dash_recharge = 1;
 
 //mouse data
-float mouseX = 0;
-float mouseY = 0;
+int mouseX = 0;
+int mouseY = 0;
 
 //for doors
 float door_speed = 1;
 float use_range = map_offset;
-
 //checks if player movement is valid. Checks player position + check amount * delta position. returns a Uint8. 
 //	if (returned_val & 1) {//x collision}
 //	if (returned_val & 2) {//y collision}
@@ -509,6 +521,7 @@ void movement(){
 }
 
 void update_world(){
+	//update door states
 	for(int i = 0; i < WORLDX * WORLDY; i++){
 		if(doors[world[i]] && world_state[i] != 0 && world_state[i] < texture_size - 1){
 			world_state[i] += 1;
@@ -519,15 +532,24 @@ void update_world(){
 	}
 }
 
+float floor_tan[screenx];
 int main(int argc, char* argv[]) {
+	    int fov = 75;
+	    float fov_pixel_width = (fov * (PI / 180.0)) / (float)screenx;
+    //precompute all tangents for floor / ceiling
+    for(int i = 0; i < screenx; i++)
+	    floor_tan[i] = tan(fov_pixel_width * (i - screenx / 2));
+
 	//init all SDL things
     SDL_Init(SDL_INIT_VIDEO);
 
-    SDL_Window* window = SDL_CreateWindow("main", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, screenx * 4, screeny * 4, 0);
+    SDL_Window* window = SDL_CreateWindow("main", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, screenx * 3, screeny * 3, 0);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
     SDL_RenderSetLogicalSize(renderer, screenx, screeny);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "2");
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, screenx, screeny);
+
+    SDL_ShowCursor(SDL_FALSE);	
 
     bool quit = false;
 
@@ -536,8 +558,6 @@ int main(int argc, char* argv[]) {
     //init keyboard buffer
     for(int i = 0; i < 255; i++)
 	    keyboard[i] = false;
-
-    SDL_ShowCursor(SDL_DISABLE);
 
     //main loop
     while (!quit) {
@@ -581,10 +601,11 @@ int main(int argc, char* argv[]) {
 
 		case SDL_MOUSEMOTION:
                 	// Get the mouse movement and smooth out
+			//SDL_GetRelativeMouseState(&mouseX, &mouseY);
 			mouseX = event.motion.xrel;
 			mouseY = event.motion.yrel;
 
-                    	SDL_WarpMouseInWindow(window, screenx / 2, screeny / 2);
+                    	SDL_WarpMouseInWindow(window, screenx, screeny);
 			break;
 	    }
         }
@@ -608,14 +629,112 @@ int main(int argc, char* argv[]) {
 	    //minimap(renderer);
 	    
 	    //rendering
-		//calculate angle between each ray based on fov
-	    int fov = 150;
-	    float fov_pixel_width = (fov * (PI / 360.0)) / (float)screenx;
+		float cam_bob = ctrl_key ? crouch_cam_bob : camera_bob_strength;
+		float camera_bob_offset = sin(camera_bob) * cam_bob;
+		//floor
+	    	//extra buffer (-30% screeny to 120% screeny) is a very dumb solution to pixels not being drawn after being shifted from camera tilt and view bobbing
+		//view bobbing is depth dependant so I can't think of any way to easily pre-compute this
+		//I tried to render quads for each floor but couldn't get the positions of the quads to line up at all due to my lack of trig knowledge
+		
+		for(int j = -(0.4 * screeny) + forward_tilt - player_z * 2; j < screeny * 1.3 + forward_tilt - player_z * 2; j++){
+			float ray_angle_l = player_dir + -(screeny / 2) * fov_pixel_width;
+			float ray_angle_r = player_dir + (screeny / 2) * fov_pixel_width;
+			float ray_angle_fix_l = ray_angle_l < -PI ? ray_angle_l + 2 * PI : ray_angle_l;
+		      	      ray_angle_fix_l = ray_angle_l >  PI ? ray_angle_l - 2 * PI : ray_angle_l;
+			float ray_angle_fix_r = ray_angle_r < -PI ? ray_angle_r + 2 * PI : ray_angle_r;
+		      	      ray_angle_fix_r = ray_angle_r >  PI ? ray_angle_r - 2 * PI : ray_angle_r;
+			
+			if(j > screeny / 2) {
+				//only need one dist to pixel because it is a reflection
+				float distance_to_pixel_plain = 100 * (screeny / 2) / ((float)j - screeny / 2 + 0.001);
+				float distance_to_pixel = distance_to_pixel_plain / cos(screeny / 2 * fov_pixel_width);
+				float floor_x_l = distance_to_pixel * sin(ray_angle_fix_l) + player_x;
+				float floor_y_l = distance_to_pixel * cos(ray_angle_fix_l) + player_y;
+				float floor_x_r = distance_to_pixel * sin(ray_angle_fix_r) + player_x;
+				float floor_y_r = distance_to_pixel * cos(ray_angle_fix_r) + player_y;
+					
+				float floor_z_offset = forward_tilt + ((player_z * 100) / distance_to_pixel) + (abs(camera_bob_offset * 100) / distance_to_pixel);
+				
+				for(int i = -screenx / 2; i < screenx / 2; i++){
+					float point_dist = distance(floor_x_l, floor_y_l, floor_x_r, floor_y_r);
+					float interpolation_val = ((floor_tan[i + screenx / 2] * distance_to_pixel_plain) + point_dist / 2) / point_dist;
+
+					float floor_x = floor_x_l + (float)(floor_x_r - floor_x_l) * interpolation_val;
+					float floor_y = floor_y_l + (float)(floor_y_r - floor_y_l) * interpolation_val;
+
+					float floor_z_offset_ = floor_z_offset + side_tilt * i;
+					if(floor_x > 0 && floor_x < map_offset * WORLDX && floor_y > 0 && floor_y < map_offset * WORLDY && (int)((float)j + floor_z_offset_) > 0 && (int)((float)j + floor_z_offset_) < screeny){
+						int floor_tex = (texture_size * texture_size) * world_flooring[(int)(floor_y / map_offset) * WORLDX +
+												       (int)(floor_x / map_offset)];
+						int floor_tex_index = floor_tex + (((int)floor_y % map_offset) / (map_offset / texture_size)) * texture_size + (((int)floor_x % map_offset) / (map_offset / texture_size));
+						SDL_Color c = {((floor_textures[floor_tex_index] & 0xFF0000) >> 16),
+							       ((floor_textures[floor_tex_index] & 0xFF00) >> 8),
+							        (floor_textures[floor_tex_index] & 0xFF),
+							       255};
+
+						SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
+						SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset_));
+						SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset_) - 1);
+					}
+				}
+			} else {
+
+				//render ceiling
+				float distance_to_pixel_plain = 100 * (screeny / 2) / (float)(screeny / 2 - j);
+				float distance_to_pixel = distance_to_pixel_plain / cos(screeny / 2 * fov_pixel_width);
+				float floor_x_l = distance_to_pixel * sin(ray_angle_fix_l) + player_x;
+				float floor_y_l = distance_to_pixel * cos(ray_angle_fix_l) + player_y;
+				float floor_x_r = distance_to_pixel * sin(ray_angle_fix_r) + player_x;
+				float floor_y_r = distance_to_pixel * cos(ray_angle_fix_r) + player_y;
+				
+				float floor_z_offset = forward_tilt + ((player_z * 100) / distance_to_pixel) + (abs(camera_bob_offset * 100) / distance_to_pixel);
+				
+				for(int i = -screenx / 2; i < screenx / 2; i++){
+					float point_dist = distance(floor_x_l, floor_y_l, floor_x_r, floor_y_r);
+					float interpolation_val = ((floor_tan[i + screenx / 2] * distance_to_pixel_plain) + point_dist / 2) / point_dist;
+					float floor_x = floor_x_l + (float)(floor_x_r - floor_x_l) * interpolation_val;
+					float floor_y = floor_y_l + (float)(floor_y_r - floor_y_l) * interpolation_val;
+					if(floor_x > 0 && floor_x < map_offset * WORLDX && floor_y > 0 && floor_y < map_offset * WORLDY){
+						float floor_z_offset_ = floor_z_offset + side_tilt * i;
+						int floor_tex = (texture_size * texture_size) * world_ceiling[(int)(floor_y / map_offset) * WORLDX +
+												       (int)(floor_x / map_offset)];
+						int floor_tex_index = floor_tex + (((int)floor_y % map_offset) / (map_offset / texture_size)) * texture_size + (((int)floor_x % map_offset) / (map_offset / texture_size));
+						SDL_Color c = {((ceiling_textures[floor_tex_index] & 0xFF0000) >> 16),
+							       ((ceiling_textures[floor_tex_index] & 0xFF00) >> 8),
+							        (ceiling_textures[floor_tex_index] & 0xFF),
+							       255};
+				
+						SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
+						SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset_));
+						SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset_) - 1);
+					}
+				}
+			}
+		}
+
 
 	    //render walls
 	    for(int i = -screenx / 2; i <= screenx / 2; i++){
-		//cast ray
+		//ray
 		float ray_angle = player_dir + (i * fov_pixel_width);
+		float tilt_offset = forward_tilt + side_tilt * i;
+
+
+		//                transparent ignored raycast to prevent parts of floors being drawn and instantly covered over
+		//cast ray
+    		ray_collision _ray = map_ray(player_x, player_y, ray_angle,
+					WORLDX, true, renderer);
+
+		float _fixed_ray_dist = _ray.dist * cos(i * fov_pixel_width);
+	
+		//calculate wall height based on screen height
+		float _wall_height = screeny / ((_ray.dist * cos(i * fov_pixel_width)) / 100);
+
+		float _z_offset = tilt_offset + ((player_z * 100) / _fixed_ray_dist) + (abs(camera_bob_offset * 100) / _fixed_ray_dist);
+
+
+
+
 	    	ray_collision ray = map_ray(player_x, player_y, ray_angle,
 						WORLDX, false, renderer);
 
@@ -640,76 +759,10 @@ int main(int argc, char* argv[]) {
 
 		float line_offset = (wall_height / texture_size);
 		
-		float tilt_offset = forward_tilt + side_tilt * i;
-		float camera_bob_offset = sin(camera_bob) * camera_bob_strength;
 		float z_offset = tilt_offset + ((player_z * 100) / fixed_ray_dist) + (abs(camera_bob_offset * 100) / fixed_ray_dist);
 		
-		//render floor
-		//extra buffer (-60% screeny to 130% screeny) is a very dumb solution to pixels not being drawn after being shifted from camera tilt
-		//	and view bobbing
-		for(int j = -(0.6 * screeny); j < screeny * 1.3; j++){
-			float ray_angle_fix = ray_angle < -PI ? ray_angle + 2 * PI : ray_angle;
-		      		ray_angle_fix = ray_angle >  PI ? ray_angle - 2 * PI : ray_angle;
-
-			if(j > screeny / 2) {
-				float distance_to_pixel = 100 * (screeny / 2) / ((float)j - screeny / 2 + 0.001) / cos(i * fov_pixel_width);
-				float floor_x = distance_to_pixel * sin(ray_angle_fix) + player_x;
-				float floor_y = distance_to_pixel * cos(ray_angle_fix) + player_y;
-			
-				float floor_z_offset = tilt_offset + ((player_z * 100) / distance_to_pixel) + (abs(camera_bob_offset * 100) / distance_to_pixel);
-			
-				if(floor_x > 0 && floor_x < map_offset * WORLDX && floor_y > 0 && floor_y < map_offset * WORLDY){
-					int floor_tex = (texture_size * texture_size) * world_flooring[(int)(floor_y / map_offset) * WORLDX +
-												       (int)(floor_x / map_offset)];
-					int floor_tex_index = floor_tex + (((int)floor_y % map_offset) / (map_offset / texture_size)) * texture_size + (((int)floor_x % map_offset) / (map_offset / texture_size));
-					SDL_Color c = {((floor_textures[floor_tex_index] & 0xFF0000) >> 16),
-						       ((floor_textures[floor_tex_index] & 0xFF00) >> 8),
-						        (floor_textures[floor_tex_index] & 0xFF),
-						       255};
-
-					SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset));
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 1);
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 2);
-				}
-		} else {
-
-			//render ceiling
-			float distance_to_pixel = 100 * (screeny / 2) / (float)(screeny / 2 - j) / cos(i * fov_pixel_width);
-
-			float floor_x = distance_to_pixel * sin(ray_angle_fix) + player_x;
-			float floor_y = distance_to_pixel * cos(ray_angle_fix) + player_y;
-			
-			float floor_z_offset = tilt_offset + ((player_z * 100) / distance_to_pixel) + (abs(camera_bob_offset * 100) / distance_to_pixel);
-			
-			if(floor_x > 0 && floor_x < map_offset * WORLDX && floor_y > 0 && floor_y < map_offset * WORLDY){
-					int floor_tex = (texture_size * texture_size) * world_ceiling[(int)(floor_y / map_offset) * WORLDX +
-												       (int)(floor_x / map_offset)];
-					int floor_tex_index = floor_tex + (((int)floor_y % map_offset) / (map_offset / texture_size)) * texture_size + (((int)floor_x % map_offset) / (map_offset / texture_size));
-					SDL_Color c = {((ceiling_textures[floor_tex_index] & 0xFF0000) >> 16),
-						       ((ceiling_textures[floor_tex_index] & 0xFF00) >> 8),
-						        (ceiling_textures[floor_tex_index] & 0xFF),
-						       255};
-				
-					SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset));
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 1);
-					SDL_RenderDrawPoint(renderer, i + screenx / 2, (int)((float)j + floor_z_offset) - 2);
-				}
-			}
-		}
-		
 		//if the ray is transparent, draw anything behind it first
-		if(ray.transparent){
-			//cast ray
-	    		ray_collision _ray = map_ray(player_x, player_y, ray_angle,
-						WORLDX, true, renderer);
-
-			float _fixed_ray_dist = _ray.dist * cos(i * fov_pixel_width);
-		
-			//calculate wall height based on screen height
-			float _wall_height = screeny / ((_ray.dist * cos(i * fov_pixel_width)) / 100);
-		
+		if(ray.transparent){		
 			//wall texture starting index
 			int _texture_index = (_ray.hit - 1) * (texture_size * texture_size) + _ray.texture_column;
 
@@ -717,8 +770,6 @@ int main(int argc, char* argv[]) {
 
 			float _line_offset = (_wall_height / texture_size);
 		
-			float _z_offset = tilt_offset + ((player_z * 100) / _fixed_ray_dist) + (abs(camera_bob_offset * 100) / _fixed_ray_dist);
-
 			for(int j = 0; j < texture_size; j++){
 				SDL_Color c = {((wall_textures[_texture_index + j * texture_size] & 0xFF0000) >> 16) * _dim,
 					       ((wall_textures[_texture_index + j * texture_size] & 0xFF00) >> 8) * _dim,
@@ -753,6 +804,13 @@ int main(int argc, char* argv[]) {
 		
         // Update the screen
         SDL_RenderPresent(renderer);
+	
+	//printf("frames: %f\n", 1 / deltaTime);
+	//clamp at 30 fps
+	//	needed because the mouse bugs out at higher framerates
+	//	doesn't move a full pixel per frame so it doesn't register
+	if(deltaTime < 0.033)
+		delay(0.033 - deltaTime);
     }
 
     SDL_DestroyTexture(texture);
